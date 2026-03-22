@@ -27,7 +27,7 @@ const stackOptions = {
 function ScanStackNav() {
   return (
     <ScanStack.Navigator screenOptions={stackOptions}>
-      <ScanStack.Screen name="ScanHome"   component={ScanScreen}       options={{ title: 'ReceiptSnap' }} />
+      <ScanStack.Screen name="ScanHome"   component={ScanScreen}       options={{ title: 'Zenvoy' }} />
       <ScanStack.Screen name="Processing" component={ProcessingScreen}  options={{ title: 'Processing', headerBackVisible: false }} />
     </ScanStack.Navigator>
   );

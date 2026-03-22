@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "ReceiptSnap",
-    "slug": "receiptsnap",
+    "name": "Zenvoy",
+    "slug": "zenvoy",
     "version": "1.0.0",
     "orientation": "portrait",
     "platforms": ["android"],
     "android": {
-      "package": "com.aareejo.ReceiptSnap",
+      "package": "com.aareejo.zenvoy",
       "googleServicesFile": "./android/app/google-services.json"
     },
     "plugins": [
-      ["expo-image-picker", { "photosPermission": "Allow ReceiptSnap to access your photos to scan receipts.", "cameraPermission": "Allow ReceiptSnap to use your camera to scan receipts." }]
+      ["expo-image-picker", { "photosPermission": "Allow Zenvoy to access your photos to scan receipts.", "cameraPermission": "Allow Zenvoy to use your camera to scan receipts." }]
     ]
   }
 }

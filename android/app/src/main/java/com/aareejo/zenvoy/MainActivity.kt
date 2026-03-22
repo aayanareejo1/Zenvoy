@@ -1,4 +1,4 @@
-package com.aareejo.ReceiptSnap
+package com.aareejo.zenvoy
 
 import android.os.Build
 import android.os.Bundle
