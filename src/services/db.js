@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import { deriveStatus, normalizeNotes } from '../utils/receiptHelpers';
 
-// Re-export so existing callers (ScanScreen) don't need updating.
+// Re-export so existing callers don't need to change their imports.
 export { deriveStatus };
 
 let db;
@@ -15,51 +15,50 @@ export const initDb = async () => {
   const database = await getDb();
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS receipts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      vendor TEXT,
-      date TEXT,
-      total REAL NOT NULL DEFAULT 0,
-      tax REAL NOT NULL DEFAULT 0,
-      category TEXT DEFAULT 'Other',
-      status TEXT DEFAULT 'ready',
-      notes TEXT DEFAULT '[]',
-      photo_uri TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT,
-      synced INTEGER DEFAULT 0
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      vendor      TEXT,
+      date        TEXT,
+      total       REAL    NOT NULL DEFAULT 0,
+      tax         REAL    NOT NULL DEFAULT 0,
+      category    TEXT    DEFAULT 'Other',
+      status      TEXT    DEFAULT 'ready',
+      notes       TEXT    DEFAULT '[]',
+      photo_uri   TEXT,
+      created_at  TEXT    NOT NULL,
+      updated_at  TEXT,
+      synced      INTEGER DEFAULT 0
     );
   `);
 
-  const migrations = [
-    "ALTER TABLE receipts ADD COLUMN category TEXT DEFAULT 'Other'",
-    "ALTER TABLE receipts ADD COLUMN status TEXT DEFAULT 'ready'",
-    "ALTER TABLE receipts ADD COLUMN notes TEXT DEFAULT '[]'",
+  // Safe migrations for installs that predate these columns
+  for (const sql of [
+    "ALTER TABLE receipts ADD COLUMN category   TEXT DEFAULT 'Other'",
+    "ALTER TABLE receipts ADD COLUMN status     TEXT DEFAULT 'ready'",
+    "ALTER TABLE receipts ADD COLUMN notes      TEXT DEFAULT '[]'",
     "ALTER TABLE receipts ADD COLUMN updated_at TEXT",
-  ];
-  for (const sql of migrations) {
-    try { await database.execAsync(sql); } catch (_) { /* column already exists */ }
+  ]) {
+    try { await database.execAsync(sql); } catch (_) { /* column exists */ }
   }
 
   // Backfill rows that predate the new columns
   await database.execAsync(`
-    UPDATE receipts SET status = 'ready' WHERE status IS NULL;
-    UPDATE receipts SET notes = '[]' WHERE notes IS NULL;
-    UPDATE receipts SET updated_at = created_at WHERE updated_at IS NULL;
+    UPDATE receipts SET status     = 'ready'     WHERE status     IS NULL;
+    UPDATE receipts SET notes      = '[]'        WHERE notes      IS NULL;
+    UPDATE receipts SET updated_at = created_at  WHERE updated_at IS NULL;
   `);
 };
 
-// --- Serialisation helpers ---
+// --- Serialisation helpers (module-private) ---
 
-const serializeNotes = (notes) => JSON.stringify(normalizeNotes(notes));
-
-const deserialize = (row) => {
+const ser   = (notes) => JSON.stringify(normalizeNotes(notes));
+const deser = (row) => {
   if (!row) return row;
   try { row.notes = JSON.parse(row.notes || '[]'); } catch { row.notes = []; }
   return row;
 };
-const deserializeAll = (rows) => rows.map(deserialize);
+const deserAll = (rows) => rows.map(deser);
 
-// --- Query helpers ---
+// --- Writes ---
 
 export const insertReceipt = async (receipt) => {
   const database = await getDb();
@@ -69,13 +68,13 @@ export const insertReceipt = async (receipt) => {
        (vendor, date, total, tax, category, status, notes, photo_uri, created_at, updated_at, synced)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      receipt.vendor  || null,
-      receipt.date    || null,
-      parseFloat(receipt.total) || 0,
-      parseFloat(receipt.tax)   || 0,
+      receipt.vendor   || null,
+      receipt.date     || null,
+      parseFloat(receipt.total)  || 0,
+      parseFloat(receipt.tax)    || 0,
       receipt.category || 'Other',
       receipt.status   || 'ready',
-      serializeNotes(receipt.notes),
+      ser(receipt.notes),
       receipt.photo_uri || null,
       receipt.created_at || now,
       now,
@@ -83,32 +82,6 @@ export const insertReceipt = async (receipt) => {
     ]
   );
   return result.lastInsertRowId;
-};
-
-export const getAllReceipts = async () => {
-  const database = await getDb();
-  const rows = await database.getAllAsync(
-    'SELECT * FROM receipts ORDER BY date DESC, created_at DESC'
-  );
-  return deserializeAll(rows);
-};
-
-/** Only receipts the user has confirmed/approved. */
-export const getReadyReceipts = async () => {
-  const database = await getDb();
-  const rows = await database.getAllAsync(
-    "SELECT * FROM receipts WHERE status = 'ready' ORDER BY date DESC, created_at DESC"
-  );
-  return deserializeAll(rows);
-};
-
-/** Receipts awaiting manual review. */
-export const getInboxReceipts = async () => {
-  const database = await getDb();
-  const rows = await database.getAllAsync(
-    "SELECT * FROM receipts WHERE status = 'needs_review' ORDER BY created_at DESC"
-  );
-  return deserializeAll(rows);
 };
 
 export const updateReceipt = async (id, receipt) => {
@@ -119,13 +92,35 @@ export const updateReceipt = async (id, receipt) => {
      SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?, updated_at=?
      WHERE id=?`,
     [
-      receipt.vendor  || null,
-      receipt.date    || null,
-      parseFloat(receipt.total) || 0,
-      parseFloat(receipt.tax)   || 0,
+      receipt.vendor   || null,
+      receipt.date     || null,
+      parseFloat(receipt.total)  || 0,
+      parseFloat(receipt.tax)    || 0,
       receipt.category || 'Other',
       receipt.status   || 'ready',
-      serializeNotes(receipt.notes),
+      ser(receipt.notes),
+      now,
+      id,
+    ]
+  );
+};
+
+/** Lightweight update used by the queue worker — only touches status and extracted fields. */
+export const updateReceiptFromScan = async (id, fields) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `UPDATE receipts
+     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?, updated_at=?
+     WHERE id=?`,
+    [
+      fields.vendor   || null,
+      fields.date     || null,
+      parseFloat(fields.total)  || 0,
+      parseFloat(fields.tax)    || 0,
+      fields.category || 'Other',
+      fields.status   || 'ready',
+      ser(fields.notes),
       now,
       id,
     ]
@@ -137,12 +132,50 @@ export const deleteReceipt = async (id) => {
   await database.runAsync('DELETE FROM receipts WHERE id=?', [id]);
 };
 
+// --- Reads ---
+
+export const getAllReceipts = async () => {
+  const database = await getDb();
+  return deserAll(await database.getAllAsync(
+    'SELECT * FROM receipts ORDER BY date DESC, created_at DESC'
+  ));
+};
+
+/** Receipts shown in the main list — only confirmed/reviewed. */
+export const getReadyReceipts = async () => {
+  const database = await getDb();
+  return deserAll(await database.getAllAsync(
+    "SELECT * FROM receipts WHERE status = 'ready' ORDER BY date DESC, created_at DESC"
+  ));
+};
+
+/** Receipts awaiting manual review. */
+export const getInboxReceipts = async () => {
+  const database = await getDb();
+  return deserAll(await database.getAllAsync(
+    "SELECT * FROM receipts WHERE status = 'needs_review' ORDER BY created_at DESC"
+  ));
+};
+
+/** Count of inbox items — used for the tab badge. */
+export const getInboxCount = async () => {
+  const database = await getDb();
+  const row = await database.getFirstAsync(
+    "SELECT COUNT(*) as count FROM receipts WHERE status = 'needs_review'"
+  );
+  return row?.count ?? 0;
+};
+
+/**
+ * Count of AI-scanned receipts this calendar month.
+ * Only counts rows with a photo_uri (proxy for "went through Claude").
+ */
 export const getMonthlyCount = async () => {
   const database = await getDb();
   const month = new Date().toISOString().slice(0, 7);
-  const result = await database.getFirstAsync(
-    "SELECT COUNT(*) as count FROM receipts WHERE created_at LIKE ?",
+  const row = await database.getFirstAsync(
+    "SELECT COUNT(*) as count FROM receipts WHERE created_at LIKE ? AND photo_uri IS NOT NULL",
     [`${month}%`]
   );
-  return result?.count ?? 0;
+  return row?.count ?? 0;
 };
