@@ -1,0 +1,37 @@
+{
+  "_comment": "PLACEHOLDER — Replace this entire file with the real google-services.json downloaded from your Firebase project console.",
+  "_instructions": [
+    "1. Go to https://console.firebase.google.com/",
+    "2. Select your project (or create one for ReceiptSnap)",
+    "3. Add an Android app with package name: com.aareejo.ReceiptSnap",
+    "4. Download the google-services.json file",
+    "5. Replace this file at: android/app/google-services.json"
+  ],
+  "project_info": {
+    "project_number": "REPLACE_ME",
+    "project_id": "REPLACE_ME",
+    "storage_bucket": "REPLACE_ME"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "REPLACE_ME",
+        "android_client_info": {
+          "package_name": "com.aareejo.ReceiptSnap"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "REPLACE_ME"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

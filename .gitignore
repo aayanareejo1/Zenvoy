@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+
+# Native build output
+android/build/
+android/app/build/
+android/app/.cxx/
+android/.gradle/
+android/local.properties
+
+# iOS
+ios/build/
+ios/Pods/
+ios/DerivedData/
+
+# Secrets — never commit these
+src/constants/config.js
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db
