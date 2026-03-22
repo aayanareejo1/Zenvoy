@@ -59,10 +59,10 @@ export default function ScanScreen({ navigation }) {
     try {
       const parsed = await parseReceiptWithVision(uri);
       setResult({ ...parsed, photo_uri: uri });
-      setVendor(!parsed.vendor || parsed.vendor === 'Not found' ? '' : parsed.vendor);
-      setDate(!parsed.date || parsed.date === 'Not found' ? '' : parsed.date);
-      setTotal(!parsed.total || parsed.total === '0.00' ? '' : String(parsed.total));
-      setTax(!parsed.tax || parsed.tax === '0.00' ? '' : String(parsed.tax));
+      setVendor(parsed.vendor || '');
+      setDate(parsed.date || '');
+      setTotal(parsed.total ? String(parsed.total) : '');
+      setTax(parsed.tax && parsed.tax !== '0.00' ? String(parsed.tax) : '');
       setCategory(parsed.category || 'Other');
       setNotes(parsed.notes || []);
     } catch (e) {
@@ -73,24 +73,34 @@ export default function ScanScreen({ navigation }) {
   };
 
   const handleSave = async () => {
+    const now = new Date().toISOString();
     const receipt = {
-      vendor: vendor.trim() || null,
-      date: date.trim() || null,
-      total: parseFloat(total) || 0,
-      tax: parseFloat(tax) || 0,
+      vendor:    vendor.trim() || null,
+      date:      date.trim()   || null,
+      total:     parseFloat(total) || 0,
+      tax:       parseFloat(tax)   || 0,
       category,
       notes,
-      photo_uri: result?.photo_uri || null,
-      created_at: new Date().toISOString(),
+      photo_uri:  result?.photo_uri || null,
+      created_at: now,
     };
     receipt.status = deriveStatus(receipt);
-    const id = await insertReceipt(receipt);
-    if (isPro && user) await syncReceiptToFirestore(user.uid, receipt);
-    setResult(null);
-    Alert.alert('Saved!', 'Receipt saved.', [{ text: 'OK', onPress: () => navigation.navigate('Receipts') }]);
-  };
 
-  const isNotFound = (v) => !v || v === 'Not found';
+    await insertReceipt(receipt);
+    if (isPro && user) await syncReceiptToFirestore(user.uid, receipt);
+
+    setResult(null);
+
+    if (receipt.status === 'needs_review') {
+      Alert.alert('Saved to Inbox', 'Some fields were missing — the receipt needs review.', [
+        { text: 'Go to Inbox', onPress: () => navigation.navigate('Inbox') },
+      ]);
+    } else {
+      Alert.alert('Saved!', 'Receipt saved.', [
+        { text: 'OK', onPress: () => navigation.navigate('Receipts') },
+      ]);
+    }
+  };
 
   if (loading) {
     return (
@@ -105,9 +115,9 @@ export default function ScanScreen({ navigation }) {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
         <Text style={styles.heading}>Review & Edit</Text>
-        <Field label="Vendor" value={vendor} onChange={setVendor} warn={isNotFound(vendor)} />
-        <Field label="Date" value={date} onChange={setDate} warn={isNotFound(date)} />
-        <Field label="Total" value={total} onChange={setTotal} warn={isNotFound(total)} prefix="$" keyboardType="decimal-pad" />
+        <Field label="Vendor" value={vendor} onChange={setVendor} warn={!vendor} />
+        <Field label="Date" value={date} onChange={setDate} warn={!date} />
+        <Field label="Total" value={total} onChange={setTotal} warn={!total} prefix="$" keyboardType="decimal-pad" />
         <Field label="Tax" value={tax} onChange={setTax} warn={false} prefix="$" keyboardType="decimal-pad" />
 
         <Text style={styles.categoryLabel}>Category</Text>

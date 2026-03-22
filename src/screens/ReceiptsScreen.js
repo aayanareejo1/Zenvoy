@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, SectionList, TouchableOpacity, TextInput, Alert, ScrollView, StyleSheet } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { getAllReceipts, deleteReceipt } from '../services/db';
+import { getReadyReceipts, deleteReceipt } from '../services/db';
 import { COLORS, RADIUS, H_PAD, CATEGORIES, getCategoryInfo } from '../constants/theme';
 
 const ALL_KEY = 'All';
@@ -9,10 +9,11 @@ const ALL_KEY = 'All';
 function groupByMonth(receipts) {
   const sections = {};
   receipts.forEach(r => {
-    const [year, month] = (r.date || r.created_at || '').split('-');
+    const key = r.date || r.created_at || '';
+    const [year, month] = key.split('-');
     if (!year || !month) return;
-    const d = new Date(parseInt(year), parseInt(month) - 1, 1);
-    const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    const label = new Date(parseInt(year), parseInt(month) - 1, 1)
+      .toLocaleString('default', { month: 'long', year: 'numeric' });
     if (!sections[label]) sections[label] = [];
     sections[label].push(r);
   });
@@ -24,29 +25,31 @@ export default function ReceiptsScreen({ navigation }) {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState(ALL_KEY);
 
-  useFocusEffect(useCallback(() => { load(); }, []));
-
-  const load = async () => {
-    const data = await getAllReceipts();
+  const load = useCallback(async () => {
+    const data = await getReadyReceipts();
     setReceipts(data);
-  };
+  }, []);
 
-  const handleDelete = (id) => {
+  useFocusEffect(load);
+
+  const handleDelete = useCallback((id) => {
     Alert.alert('Delete Receipt', 'Are you sure?', [
       { text: 'Delete', style: 'destructive', onPress: async () => { await deleteReceipt(id); load(); } },
       { text: 'Cancel', style: 'cancel' },
     ]);
-  };
+  }, [load]);
 
-  const filtered = receipts.filter(r => {
-    const matchSearch = r.vendor.toLowerCase().includes(search.toLowerCase());
-    const matchCat = activeCategory === ALL_KEY || (r.category || 'Other') === activeCategory;
-    return matchSearch && matchCat;
-  });
+  const sections = useMemo(() => {
+    const lowerSearch = search.toLowerCase();
+    const filtered = receipts.filter(r => {
+      const matchSearch = (r.vendor || '').toLowerCase().includes(lowerSearch);
+      const matchCat = activeCategory === ALL_KEY || (r.category || 'Other') === activeCategory;
+      return matchSearch && matchCat;
+    });
+    return groupByMonth(filtered);
+  }, [receipts, search, activeCategory]);
 
-  const sections = groupByMonth(filtered);
-
-  const renderItem = ({ item }) => {
+  const renderItem = useCallback(({ item }) => {
     const cat = getCategoryInfo(item.category);
     return (
       <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('ReceiptDetail', { receipt: item })}>
@@ -54,8 +57,8 @@ export default function ReceiptsScreen({ navigation }) {
           <Text style={styles.catEmoji}>{cat.emoji}</Text>
         </View>
         <View style={styles.rowMiddle}>
-          <Text style={styles.vendor} numberOfLines={1}>{item.vendor}</Text>
-          <Text style={styles.date}>{item.date}</Text>
+          <Text style={styles.vendor} numberOfLines={1}>{item.vendor || 'Unknown vendor'}</Text>
+          <Text style={styles.date}>{item.date || '—'}</Text>
         </View>
         <View style={styles.rowRight}>
           <Text style={styles.total}>${parseFloat(item.total).toFixed(2)}</Text>
@@ -65,16 +68,16 @@ export default function ReceiptsScreen({ navigation }) {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [navigation, handleDelete]);
 
-  const renderSectionHeader = ({ section }) => (
+  const renderSectionHeader = useCallback(({ section }) => (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{section.title}</Text>
       <Text style={styles.sectionTotal}>
         ${section.data.reduce((s, r) => s + parseFloat(r.total), 0).toFixed(2)}
       </Text>
     </View>
-  );
+  ), []);
 
   return (
     <View style={styles.container}>
@@ -86,7 +89,6 @@ export default function ReceiptsScreen({ navigation }) {
         onChangeText={setSearch}
       />
 
-      {/* Category filter chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipContent}>
         <TouchableOpacity
           style={[styles.chip, activeCategory === ALL_KEY && styles.chipActive]}
