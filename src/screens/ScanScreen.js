@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, StyleSheet } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { parseReceiptWithVision } from '../services/claude';
-import { insertReceipt, getMonthlyCount } from '../services/db';
+import { insertReceipt, getMonthlyCount, deriveStatus } from '../services/db';
 import { syncReceiptToFirestore } from '../services/firestore';
 import { useApp } from '../context/AppContext';
 import { COLORS, RADIUS, BTN_HEIGHT, H_PAD, CATEGORIES } from '../constants/theme';
@@ -17,6 +17,7 @@ export default function ScanScreen({ navigation }) {
   const [total, setTotal] = useState('');
   const [tax, setTax] = useState('');
   const [category, setCategory] = useState('Other');
+  const [notes, setNotes] = useState([]);
 
   const handleScan = () => {
     Alert.alert('Scan Receipt', 'Choose source', [
@@ -58,11 +59,12 @@ export default function ScanScreen({ navigation }) {
     try {
       const parsed = await parseReceiptWithVision(uri);
       setResult({ ...parsed, photo_uri: uri });
-      setVendor(parsed.vendor === 'Not found' ? '' : parsed.vendor);
-      setDate(parsed.date === 'Not found' ? '' : parsed.date);
-      setTotal(parsed.total === '0.00' ? '' : parsed.total);
-      setTax(parsed.tax === '0.00' ? '' : parsed.tax);
-      setCategory('Other');
+      setVendor(!parsed.vendor || parsed.vendor === 'Not found' ? '' : parsed.vendor);
+      setDate(!parsed.date || parsed.date === 'Not found' ? '' : parsed.date);
+      setTotal(!parsed.total || parsed.total === '0.00' ? '' : String(parsed.total));
+      setTax(!parsed.tax || parsed.tax === '0.00' ? '' : String(parsed.tax));
+      setCategory(parsed.category || 'Other');
+      setNotes(parsed.notes || []);
     } catch (e) {
       Alert.alert('Error', e.message);
     } finally {
@@ -71,16 +73,17 @@ export default function ScanScreen({ navigation }) {
   };
 
   const handleSave = async () => {
-    if (!vendor.trim()) { Alert.alert('Vendor required'); return; }
     const receipt = {
-      vendor: vendor.trim(),
-      date: date.trim() || new Date().toISOString().slice(0, 10),
+      vendor: vendor.trim() || null,
+      date: date.trim() || null,
       total: parseFloat(total) || 0,
       tax: parseFloat(tax) || 0,
       category,
+      notes,
       photo_uri: result?.photo_uri || null,
       created_at: new Date().toISOString(),
     };
+    receipt.status = deriveStatus(receipt);
     const id = await insertReceipt(receipt);
     if (isPro && user) await syncReceiptToFirestore(user.uid, receipt);
     setResult(null);
@@ -122,6 +125,14 @@ export default function ScanScreen({ navigation }) {
             </TouchableOpacity>
           ))}
         </ScrollView>
+
+        {notes.length > 0 && (
+          <View style={styles.notesBox}>
+            {notes.map((n, i) => (
+              <Text key={i} style={styles.noteText}>• {n}</Text>
+            ))}
+          </View>
+        )}
 
         <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
           <Text style={styles.saveBtnText}>Save Receipt</Text>
@@ -192,4 +203,6 @@ const styles = StyleSheet.create({
   saveBtnText: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
   cancelBtn: { height: BTN_HEIGHT, borderRadius: RADIUS.button, justifyContent: 'center', alignItems: 'center', marginTop: 12 },
   cancelBtnText: { fontSize: 16, color: COLORS.textSecondary },
+  notesBox: { backgroundColor: COLORS.cardAlt, borderRadius: RADIUS.input, padding: 12, marginBottom: 16, gap: 4 },
+  noteText: { fontSize: 13, color: COLORS.warning, lineHeight: 18 },
 });
