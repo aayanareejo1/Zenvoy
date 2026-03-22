@@ -1,4 +1,8 @@
 import * as SQLite from 'expo-sqlite';
+import { deriveStatus, normalizeNotes } from '../utils/receiptHelpers';
+
+// Re-export so existing callers (ScanScreen) don't need updating.
+export { deriveStatus };
 
 let db;
 
@@ -8,8 +12,8 @@ export const getDb = async () => {
 };
 
 export const initDb = async () => {
-  const db = await getDb();
-  await db.execAsync(`
+  const database = await getDb();
+  await database.execAsync(`
     CREATE TABLE IF NOT EXISTS receipts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       vendor TEXT,
@@ -26,7 +30,6 @@ export const initDb = async () => {
     );
   `);
 
-  // Safe migrations for existing installs
   const migrations = [
     "ALTER TABLE receipts ADD COLUMN category TEXT DEFAULT 'Other'",
     "ALTER TABLE receipts ADD COLUMN status TEXT DEFAULT 'ready'",
@@ -34,45 +37,44 @@ export const initDb = async () => {
     "ALTER TABLE receipts ADD COLUMN updated_at TEXT",
   ];
   for (const sql of migrations) {
-    try { await db.execAsync(sql); } catch (_) { /* column already exists */ }
+    try { await database.execAsync(sql); } catch (_) { /* column already exists */ }
   }
 
-  // Backfill existing rows that predate the new columns
-  await db.execAsync(`
+  // Backfill rows that predate the new columns
+  await database.execAsync(`
     UPDATE receipts SET status = 'ready' WHERE status IS NULL;
     UPDATE receipts SET notes = '[]' WHERE notes IS NULL;
     UPDATE receipts SET updated_at = created_at WHERE updated_at IS NULL;
   `);
 };
 
-const serializeNotes = (notes) => JSON.stringify(Array.isArray(notes) ? notes : []);
-const deserializeNotes = (raw) => { try { return JSON.parse(raw || '[]'); } catch { return []; } };
+// --- Serialisation helpers ---
 
-const deserialize = (row) => row ? { ...row, notes: deserializeNotes(row.notes) } : row;
+const serializeNotes = (notes) => JSON.stringify(normalizeNotes(notes));
+
+const deserialize = (row) => {
+  if (!row) return row;
+  try { row.notes = JSON.parse(row.notes || '[]'); } catch { row.notes = []; }
+  return row;
+};
 const deserializeAll = (rows) => rows.map(deserialize);
 
-// Routing: if vendor/date/total are missing/unusable → needs_review
-export const deriveStatus = (receipt) => {
-  const hasVendor = receipt.vendor && receipt.vendor !== 'Not found';
-  const hasDate = receipt.date && receipt.date !== 'Not found';
-  const hasTotal = receipt.total !== null && receipt.total !== undefined && parseFloat(receipt.total) > 0;
-  return (hasVendor && hasDate && hasTotal) ? 'ready' : 'needs_review';
-};
+// --- Query helpers ---
 
 export const insertReceipt = async (receipt) => {
-  const db = await getDb();
+  const database = await getDb();
   const now = new Date().toISOString();
-  const result = await db.runAsync(
+  const result = await database.runAsync(
     `INSERT INTO receipts
-      (vendor, date, total, tax, category, status, notes, photo_uri, created_at, updated_at, synced)
+       (vendor, date, total, tax, category, status, notes, photo_uri, created_at, updated_at, synced)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      receipt.vendor || null,
-      receipt.date || null,
+      receipt.vendor  || null,
+      receipt.date    || null,
       parseFloat(receipt.total) || 0,
-      parseFloat(receipt.tax) || 0,
+      parseFloat(receipt.tax)   || 0,
       receipt.category || 'Other',
-      receipt.status || 'ready',
+      receipt.status   || 'ready',
       serializeNotes(receipt.notes),
       receipt.photo_uri || null,
       receipt.created_at || now,
@@ -84,33 +86,45 @@ export const insertReceipt = async (receipt) => {
 };
 
 export const getAllReceipts = async () => {
-  const db = await getDb();
-  const rows = await db.getAllAsync('SELECT * FROM receipts ORDER BY date DESC, created_at DESC');
+  const database = await getDb();
+  const rows = await database.getAllAsync(
+    'SELECT * FROM receipts ORDER BY date DESC, created_at DESC'
+  );
   return deserializeAll(rows);
 };
 
+/** Only receipts the user has confirmed/approved. */
+export const getReadyReceipts = async () => {
+  const database = await getDb();
+  const rows = await database.getAllAsync(
+    "SELECT * FROM receipts WHERE status = 'ready' ORDER BY date DESC, created_at DESC"
+  );
+  return deserializeAll(rows);
+};
+
+/** Receipts awaiting manual review. */
 export const getInboxReceipts = async () => {
-  const db = await getDb();
-  const rows = await db.getAllAsync(
+  const database = await getDb();
+  const rows = await database.getAllAsync(
     "SELECT * FROM receipts WHERE status = 'needs_review' ORDER BY created_at DESC"
   );
   return deserializeAll(rows);
 };
 
 export const updateReceipt = async (id, receipt) => {
-  const db = await getDb();
+  const database = await getDb();
   const now = new Date().toISOString();
-  await db.runAsync(
+  await database.runAsync(
     `UPDATE receipts
      SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?, updated_at=?
      WHERE id=?`,
     [
-      receipt.vendor || null,
-      receipt.date || null,
+      receipt.vendor  || null,
+      receipt.date    || null,
       parseFloat(receipt.total) || 0,
-      parseFloat(receipt.tax) || 0,
+      parseFloat(receipt.tax)   || 0,
       receipt.category || 'Other',
-      receipt.status || 'ready',
+      receipt.status   || 'ready',
       serializeNotes(receipt.notes),
       now,
       id,
@@ -119,14 +133,14 @@ export const updateReceipt = async (id, receipt) => {
 };
 
 export const deleteReceipt = async (id) => {
-  const db = await getDb();
-  await db.runAsync('DELETE FROM receipts WHERE id=?', [id]);
+  const database = await getDb();
+  await database.runAsync('DELETE FROM receipts WHERE id=?', [id]);
 };
 
 export const getMonthlyCount = async () => {
-  const db = await getDb();
+  const database = await getDb();
   const month = new Date().toISOString().slice(0, 7);
-  const result = await db.getFirstAsync(
+  const result = await database.getFirstAsync(
     "SELECT COUNT(*) as count FROM receipts WHERE created_at LIKE ?",
     [`${month}%`]
   );

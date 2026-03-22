@@ -1,25 +1,24 @@
-import React, { useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getInboxReceipts } from '../services/db';
-import { getCategoryInfo } from '../constants/theme';
-import { COLORS, RADIUS, H_PAD } from '../constants/theme';
+import { COLORS, RADIUS, H_PAD, getCategoryInfo } from '../constants/theme';
 
 export default function InboxScreen({ navigation }) {
-  const [receipts, setReceipts] = React.useState([]);
+  const [receipts, setReceipts] = useState([]);
 
-  useFocusEffect(useCallback(() => { load(); }, []));
-
-  const load = async () => {
+  const load = useCallback(async () => {
     const data = await getInboxReceipts();
     setReceipts(data);
-  };
+  }, []);
 
-  const renderItem = ({ item }) => {
+  useFocusEffect(load);
+
+  const renderItem = useCallback(({ item }) => {
     const cat = getCategoryInfo(item.category);
     const vendor = item.vendor || 'Unknown vendor';
-    const date = item.date || 'No date';
-    const total = item.total != null ? `$${parseFloat(item.total).toFixed(2)}` : 'No total';
+    const date   = item.date   || 'No date';
+    const total  = parseFloat(item.total) > 0 ? `$${parseFloat(item.total).toFixed(2)}` : 'No total';
 
     return (
       <TouchableOpacity
@@ -44,7 +43,7 @@ export default function InboxScreen({ navigation }) {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [navigation, load]);
 
   return (
     <View style={styles.container}>

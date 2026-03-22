@@ -1,7 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { CLAUDE_API_KEY, CLAUDE_API_URL } from '../constants/config';
-
-const VALID_CATEGORIES = ['Food', 'Transport', 'Shopping', 'Business', 'Healthcare', 'Entertainment', 'Other'];
+import { VALID_CATEGORY_KEYS, normalizeNotes, normalizeCategory } from '../utils/receiptHelpers';
 
 export const parseReceiptWithVision = async (imageUri) => {
   try {
@@ -27,45 +26,45 @@ export const parseReceiptWithVision = async (imageUri) => {
   "date": "YYYY-MM-DD or null if not found",
   "total": "22.70 or null if not found",
   "tax": "6.24 or 0.00 if no tax",
-  "category": "one of: Food, Transport, Shopping, Business, Healthcare, Entertainment, Other",
+  "category": "one of: ${VALID_CATEGORY_KEYS.join(', ')}",
   "notes": ["short note about any uncertainty, missing field, or assumption"]
 }
 
 Rules:
 - tax = sum of HST + GST + PST + QST; use "0.00" if none found
-- category must be exactly one of the 7 listed values; use "Other" if uncertain
+- category must be exactly one of the listed values; use "Other" if uncertain
 - notes is an array of short strings; use [] if everything is clear
 - Use null (not the string "null") for genuinely missing vendor/date/total` },
           ],
         }],
       }),
     });
+
     const data = await apiResponse.json();
     const text = data.content[0].text.trim();
     const cleaned = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    const raw = JSON.parse(cleaned);
 
-    // Normalise category
-    if (!VALID_CATEGORIES.includes(parsed.category)) {
-      parsed.notes = [...(parsed.notes || []), `Category "${parsed.category}" not recognised — defaulted to Other`];
-      parsed.category = 'Other';
-    }
+    const notes = normalizeNotes(raw.notes);
+    const { category, notes: finalNotes } = normalizeCategory(raw.category, notes);
 
-    // Normalise notes to always be an array
-    if (!Array.isArray(parsed.notes)) {
-      parsed.notes = parsed.notes ? [String(parsed.notes)] : [];
-    }
-
-    return parsed;
+    return {
+      vendor: raw.vendor || null,
+      date:   raw.date   || null,
+      total:  raw.total  || null,
+      tax:    raw.tax    || '0.00',
+      category,
+      notes: finalNotes,
+    };
   } catch (e) {
     console.log('Parse error:', e.message);
     return {
-      vendor: null,
-      date: null,
-      total: null,
-      tax: '0.00',
+      vendor:   null,
+      date:     null,
+      total:    null,
+      tax:      '0.00',
       category: 'Other',
-      notes: ['Failed to read receipt — please enter details manually'],
+      notes:    ['Failed to read receipt — please enter details manually'],
     };
   }
 };
