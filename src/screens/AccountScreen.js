@@ -52,7 +52,7 @@ export default function AccountScreen() {
   if (!user) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.logo}>ReceiptSnap</Text>
+        <Text style={styles.logo}>Zenvoy</Text>
         <Text style={styles.tagline}>Back up your receipts. Access anywhere.</Text>
         <View style={styles.benefits}>
           {[

@@ -37,9 +37,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.aareejo.ReceiptSnap'
+    namespace 'com.aareejo.zenvoy'
     defaultConfig {
-        applicationId 'com.aareejo.ReceiptSnap'
+        applicationId 'com.aareejo.zenvoy'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

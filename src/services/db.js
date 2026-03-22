@@ -7,7 +7,7 @@ export { deriveStatus };
 let db;
 
 export const getDb = async () => {
-  if (!db) db = await SQLite.openDatabaseAsync('receiptsnap.db');
+  if (!db) db = await SQLite.openDatabaseAsync('zenvoy.db');
   return db;
 };
 

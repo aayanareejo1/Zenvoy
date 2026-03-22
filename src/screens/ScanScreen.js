@@ -304,7 +304,7 @@ export default function ScanScreen({ navigation }) {
         onRetake={() => { setTooLarge(false); handleScan(); }}
         onManual={() => { setTooLarge(false); setResult({ photo_uri: null }); }}
       />
-      <Text style={styles.logo}>ReceiptSnap</Text>
+      <Text style={styles.logo}>Zenvoy</Text>
       <Text style={styles.tagline}>Scan. Save. Done.</Text>
       <TouchableOpacity style={styles.scanBtn} onPress={handleScan}>
         <Text style={styles.scanBtnText}>📷  Scan Receipt</Text>
