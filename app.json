@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "ReceiptSnap",
+    "slug": "receiptsnap",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": ["android"],
+    "android": {
+      "package": "com.aareejo.ReceiptSnap",
+      "googleServicesFile": "./android/app/google-services.json"
+    },
+    "plugins": [
+      ["expo-image-picker", { "photosPermission": "Allow ReceiptSnap to access your photos to scan receipts.", "cameraPermission": "Allow ReceiptSnap to use your camera to scan receipts." }]
+    ]
+  }
+}
