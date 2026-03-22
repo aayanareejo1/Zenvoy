@@ -1,8 +1,10 @@
-import firestore from '@react-native-firebase/firestore';
+import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc } from '@react-native-firebase/firestore';
+
+const db = getFirestore();
 
 export const syncReceiptToFirestore = async (uid, receipt) => {
   try {
-    await firestore().collection('users').doc(uid).collection('receipts').add({
+    await addDoc(collection(db, 'users', uid, 'receipts'), {
       vendor: receipt.vendor || null,
       date: receipt.date || null,
       total: receipt.total,
@@ -21,8 +23,8 @@ export const syncReceiptToFirestore = async (uid, receipt) => {
 
 export const fetchFirestoreReceipts = async (uid) => {
   try {
-    const snapshot = await firestore().collection('users').doc(uid).collection('receipts').get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const snapshot = await getDocs(collection(db, 'users', uid, 'receipts'));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) {
     console.log('Firestore fetch error:', e.message);
     return [];
@@ -31,8 +33,9 @@ export const fetchFirestoreReceipts = async (uid) => {
 
 export const getSubscriptionStatus = async (uid) => {
   try {
-    const doc = await firestore().collection('users').doc(uid).collection('subscription').doc('status').get();
-    if (doc.exists) return doc.data();
+    const ref = doc(db, 'users', uid, 'subscription', 'status');
+    const snap = await getDoc(ref);
+    if (snap.exists()) return snap.data();
     return { isPro: false };
   } catch (e) {
     return { isPro: false };
@@ -40,5 +43,5 @@ export const getSubscriptionStatus = async (uid) => {
 };
 
 export const setProStatus = async (uid, isPro, expiresAt) => {
-  await firestore().collection('users').doc(uid).collection('subscription').doc('status').set({ isPro, expiresAt });
+  await setDoc(doc(db, 'users', uid, 'subscription', 'status'), { isPro, expiresAt });
 };
