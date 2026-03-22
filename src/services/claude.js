@@ -2,9 +2,15 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { CLAUDE_API_KEY, CLAUDE_API_URL } from '../constants/config';
 import { VALID_CATEGORY_KEYS, normalizeNotes, normalizeCategory } from '../utils/receiptHelpers';
 
+/**
+ * Parse a receipt image with Claude vision.
+ * Expects a pre-processed URI (already resized/compressed).
+ * Returns parsed fields + an optional `_tokenWarning` flag.
+ */
 export const parseReceiptWithVision = async (imageUri) => {
   try {
     const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
+
     const apiResponse = await fetch(CLAUDE_API_URL, {
       method: 'POST',
       headers: {
@@ -48,13 +54,18 @@ Rules:
     const notes = normalizeNotes(raw.notes);
     const { category, notes: finalNotes } = normalizeCategory(raw.category, notes);
 
+    // Flag unusually large token usage so the caller can educate the user.
+    const totalTokens = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
+    const tokenWarning = totalTokens >= 3000;
+
     return {
-      vendor: raw.vendor || null,
-      date:   raw.date   || null,
-      total:  raw.total  || null,
-      tax:    raw.tax    || '0.00',
+      vendor:  raw.vendor || null,
+      date:    raw.date   || null,
+      total:   raw.total  || null,
+      tax:     raw.tax    || '0.00',
       category,
       notes: finalNotes,
+      _tokenWarning: tokenWarning,
     };
   } catch (e) {
     console.log('Parse error:', e.message);
@@ -65,6 +76,7 @@ Rules:
       tax:      '0.00',
       category: 'Other',
       notes:    ['Failed to read receipt — please enter details manually'],
+      _tokenWarning: false,
     };
   }
 };
