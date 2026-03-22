@@ -3,12 +3,16 @@ import firestore from '@react-native-firebase/firestore';
 export const syncReceiptToFirestore = async (uid, receipt) => {
   try {
     await firestore().collection('users').doc(uid).collection('receipts').add({
-      vendor: receipt.vendor,
-      date: receipt.date,
+      vendor: receipt.vendor || null,
+      date: receipt.date || null,
       total: receipt.total,
       tax: receipt.tax,
+      category: receipt.category || 'Other',
+      status: receipt.status || 'ready',
+      notes: Array.isArray(receipt.notes) ? receipt.notes : [],
       photoUri: receipt.photo_uri || null,
-      createdAt: receipt.created_at,
+      createdAt: receipt.created_at || null,
+      updatedAt: receipt.updated_at || receipt.created_at || null,
     });
   } catch (e) {
     console.log('Firestore sync error:', e.message);
