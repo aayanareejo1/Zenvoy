@@ -9,7 +9,7 @@ import Sheet, { SheetOption } from '../components/Sheet';
 import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE } from '../constants/theme';
 import { FREE_MONTHLY_LIMIT } from '../constants/config';
 
-export default function AccountScreen() {
+export default function AccountScreen({ navigation }) {
   const { user, isPro, refreshInboxCount } = useApp();
   const { showToast }                      = useToast();
 
@@ -198,6 +198,15 @@ export default function AccountScreen() {
             : <Text style={styles.secondaryBtnTxt}>☁️  Restore from Cloud</Text>}
         </TouchableOpacity>
       )}
+
+      {/* Sync Management */}
+      <TouchableOpacity
+        style={styles.secondaryBtn}
+        onPress={() => navigation.navigate('SyncManagement')}
+        activeOpacity={0.75}
+      >
+        <Text style={styles.secondaryBtnTxt}>⟳  Sync Management</Text>
+      </TouchableOpacity>
 
       {/* Sign out */}
       <TouchableOpacity style={styles.signOutBtn} onPress={() => setSignOutDialog(true)} activeOpacity={0.75}>
