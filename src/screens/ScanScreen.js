@@ -8,6 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { parseReceiptWithVision }      from '../services/claude';
 import { preprocessImage, isTooLarge } from '../services/imageProcessor';
 import { insertReceipt, getLatestReceipt, getMonthlyCount, deriveStatus } from '../services/db';
+import { createQueueEntry } from '../services/queueService';
 import { syncReceiptToFirestore }      from '../services/firestore';
 import { useApp }                      from '../context/AppContext';
 import { useToast }                    from '../context/ToastContext';
@@ -235,17 +236,18 @@ export default function ScanScreen({ navigation }) {
     const now = new Date().toISOString();
     const queueItems = [];
     for (const asset of toProcess) {
-      const id = await insertReceipt({
+      const receiptId = await insertReceipt({
         vendor: null, date: null, total: 0, tax: 0,
         category: 'Other', status: 'needs_review',
         notes: ['Queued for processing'],
         photo_uri: asset.uri,
         created_at: now,
       });
-      queueItems.push({ id, photoUri: asset.uri });
+      const queueId = await createQueueEntry(receiptId, asset.uri);
+      queueItems.push({ queueId, receiptId, photoUri: asset.uri });
     }
     setLoading(false);
-    navigation.navigate('Processing', { items: queueItems });
+    navigation.navigate('Processing', { queueItems });
   };
 
   // ── Save ─────────────────────────────────────────────────────────────────
