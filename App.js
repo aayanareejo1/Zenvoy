@@ -11,6 +11,7 @@ import ScanScreen         from './src/screens/ScanScreen';
 import ProcessingScreen   from './src/screens/ProcessingScreen';
 import ReceiptsScreen     from './src/screens/ReceiptsScreen';
 import ReceiptDetailScreen from './src/screens/ReceiptDetailScreen';
+import EditReceiptScreen  from './src/screens/EditReceiptScreen';
 import InboxScreen        from './src/screens/InboxScreen';
 import ReportsScreen      from './src/screens/ReportsScreen';
 import AccountScreen      from './src/screens/AccountScreen';
@@ -42,6 +43,7 @@ function ReceiptsStackNav() {
     <ReceiptsStack.Navigator screenOptions={stackOptions}>
       <ReceiptsStack.Screen name="ReceiptsList"  component={ReceiptsScreen}       options={{ title: 'Receipts' }} />
       <ReceiptsStack.Screen name="ReceiptDetail" component={ReceiptDetailScreen}  options={{ title: 'Detail' }} />
+      <ReceiptsStack.Screen name="EditReceipt"   component={EditReceiptScreen}    options={{ title: 'Edit Receipt', headerBackTitle: 'Back' }} />
     </ReceiptsStack.Navigator>
   );
 }
@@ -51,6 +53,7 @@ function InboxStackNav() {
     <InboxStack.Navigator screenOptions={stackOptions}>
       <InboxStack.Screen name="InboxList"   component={InboxScreen}         options={{ title: 'Inbox' }} />
       <InboxStack.Screen name="InboxDetail" component={ReceiptDetailScreen} options={{ title: 'Review' }} />
+      <InboxStack.Screen name="EditReceipt" component={EditReceiptScreen}   options={{ title: 'Edit Receipt', headerBackTitle: 'Back' }} />
     </InboxStack.Navigator>
   );
 }

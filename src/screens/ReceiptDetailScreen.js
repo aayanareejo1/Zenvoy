@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Modal, Image } from 'react-native';
-import { updateReceipt, deleteReceipt } from '../services/db';
+import React, { useState, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, Image } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { updateReceipt, deleteReceipt, getReceiptById } from '../services/db';
 import * as Haptics from 'expo-haptics';
 import { useToast }  from '../context/ToastContext';
 import Dialog        from '../components/Dialog';
-import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, CATEGORIES, getCategoryInfo } from '../constants/theme';
+import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, getCategoryInfo } from '../constants/theme';
 
 // ─── Full-screen photo viewer ──────────────────────────────────────────────────
 
@@ -28,38 +29,47 @@ function PhotoViewer({ uri, onClose }) {
 // ─── Detail screen ─────────────────────────────────────────────────────────────
 
 export default function ReceiptDetailScreen({ route, navigation }) {
-  const { receipt, onSave } = route.params;
+  const { receipt: initialReceipt, onSave } = route.params;
   const { showToast }       = useToast();
-  const [editing, setEditing]     = useState(false);
-  const [vendor, setVendor]       = useState(receipt.vendor || '');
-  const [date, setDate]           = useState(receipt.date || '');
-  const [total, setTotal]         = useState(String(receipt.total ?? ''));
-  const [tax, setTax]             = useState(String(receipt.tax ?? ''));
-  const [category, setCategory]   = useState(receipt.category || 'Other');
-  const [status, setStatus]       = useState(receipt.status || 'ready');
+  const [vendor, setVendor]       = useState(initialReceipt.vendor || '');
+  const [date, setDate]           = useState(initialReceipt.date || '');
+  const [total, setTotal]         = useState(String(initialReceipt.total ?? ''));
+  const [tax, setTax]             = useState(String(initialReceipt.tax ?? ''));
+  const [category, setCategory]   = useState(initialReceipt.category || 'Other');
+  const [status, setStatus]       = useState(initialReceipt.status || 'ready');
+  const [notes, setNotes]         = useState(initialReceipt.notes || []);
   const [photoUri, setPhotoUri]   = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
-  const notes = receipt.notes || [];
-  const cat   = getCategoryInfo(category);
+  const cat = getCategoryInfo(category);
 
   const canMarkReady = vendor.trim() && date.trim() && parseFloat(total) > 0;
 
-  const handleSave = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const updated = {
-      vendor:   vendor.trim() || null,
-      date:     date.trim()   || null,
-      total:    parseFloat(total) || 0,
-      tax:      parseFloat(tax)   || 0,
-      category,
-      status,
-      notes,
-    };
-    await updateReceipt(receipt.id, updated);
-    setEditing(false);
-    onSave?.();
-    showToast({ message: 'Changes saved', type: 'success' });
-  };
+  // Reload receipt from DB each time the screen comes into focus so changes
+  // made in EditReceiptScreen are reflected immediately.
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getReceiptById(initialReceipt.id);
+        if (cancelled) return;
+        if (!data || data.status === 'deleted') {
+          onSave?.();
+          navigation.goBack();
+          return;
+        }
+        setVendor(data.vendor || '');
+        setDate(data.date || '');
+        setTotal(String(data.total ?? ''));
+        setTax(String(data.tax ?? ''));
+        setCategory(data.category || 'Other');
+        setStatus(data.status || 'ready');
+        setNotes(data.notes || []);
+      } catch {
+        // DB read failed — keep existing state; user can still navigate away
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [initialReceipt.id, onSave, navigation]));
 
   const handleMarkReady = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -67,7 +77,7 @@ export default function ReceiptDetailScreen({ route, navigation }) {
       showToast({ message: 'Set vendor, date, and total before marking ready.', type: 'warning' });
       return;
     }
-    await updateReceipt(receipt.id, {
+    await updateReceipt(initialReceipt.id, {
       vendor:   vendor.trim() || null,
       date:     date.trim()   || null,
       total:    parseFloat(total) || 0,
@@ -84,7 +94,7 @@ export default function ReceiptDetailScreen({ route, navigation }) {
   const confirmDelete = async () => {
     setDeleteDialog(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    await deleteReceipt(receipt.id);
+    await deleteReceipt(initialReceipt.id);
     onSave?.();
     navigation.goBack();
   };
@@ -110,71 +120,30 @@ export default function ReceiptDetailScreen({ route, navigation }) {
         </View>
       )}
 
-      {/* Category badge (view mode only) */}
-      {!editing && (
-        <View style={[styles.catBadge, { backgroundColor: cat.color + '18', borderColor: cat.color + '60' }]}>
-          <Text style={styles.catEmoji}>{cat.emoji}</Text>
-          <Text style={[styles.catLabel, { color: cat.color }]}>{cat.label}</Text>
-        </View>
-      )}
+      {/* Category badge */}
+      <View style={[styles.catBadge, { backgroundColor: cat.color + '18', borderColor: cat.color + '60' }]}>
+        <Text style={styles.catEmoji}>{cat.emoji}</Text>
+        <Text style={[styles.catLabel, { color: cat.color }]}>{cat.label}</Text>
+      </View>
 
       <Text style={styles.heading}>Receipt Detail</Text>
 
-      {/* Text fields */}
-      {[['Vendor', vendor, setVendor, 'default'], ['Date', date, setDate, 'default']].map(([l, v, s, kt]) => (
+      {/* Text fields — display only */}
+      {[['Vendor', vendor], ['Date', date]].map(([l, v]) => (
         <View key={l} style={styles.field}>
           <Text style={styles.label}>{l}</Text>
-          {editing
-            ? <TextInput
-                style={styles.input}
-                value={v}
-                onChangeText={s}
-                keyboardType={kt}
-                placeholderTextColor={COLORS.textTertiary}
-                placeholder={`Enter ${l.toLowerCase()}`}
-                selectionColor={COLORS.accent}
-              />
-            : <Text style={[styles.value, !v && styles.valueMissing]}>{v || 'Not set'}</Text>}
+          <Text style={[styles.value, !v && styles.valueMissing]}>{v || 'Not set'}</Text>
         </View>
       ))}
 
-      {[['Total', total, setTotal], ['Tax', tax, setTax]].map(([l, v, s]) => (
+      {[['Total', total], ['Tax', tax]].map(([l, v]) => (
         <View key={l} style={styles.field}>
           <Text style={styles.label}>{l}</Text>
-          {editing
-            ? <TextInput
-                style={styles.input}
-                value={v}
-                onChangeText={s}
-                keyboardType="decimal-pad"
-                placeholderTextColor={COLORS.textTertiary}
-                selectionColor={COLORS.accent}
-              />
-            : <Text style={[styles.value, !parseFloat(v) && l === 'Total' && styles.valueMissing]}>
-                {parseFloat(v) > 0 ? `$${parseFloat(v).toFixed(2)}` : l === 'Total' ? 'Not set' : '$0.00'}
-              </Text>}
+          <Text style={[styles.value, !parseFloat(v) && l === 'Total' && styles.valueMissing]}>
+            {parseFloat(v) > 0 ? `$${parseFloat(v).toFixed(2)}` : l === 'Total' ? 'Not set' : '$0.00'}
+          </Text>
         </View>
       ))}
-
-      {/* Category picker (edit mode) */}
-      {editing && (
-        <View style={styles.field}>
-          <Text style={styles.label}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catChips}>
-            {CATEGORIES.map(c => (
-              <TouchableOpacity
-                key={c.key}
-                style={[styles.catChip, { borderColor: c.color + '80' }, category === c.key && { backgroundColor: c.color, borderColor: c.color }]}
-                onPress={() => setCategory(c.key)}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.catChipEmoji}>{c.emoji}</Text>
-                <Text style={[styles.catChipText, category === c.key && styles.catChipTextActive]}>{c.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
 
       {/* AI Notes */}
       {notes.length > 0 && (
@@ -187,45 +156,34 @@ export default function ReceiptDetailScreen({ route, navigation }) {
       )}
 
       {/* Photo viewer button */}
-      {receipt.photo_uri && (
-        <TouchableOpacity style={styles.photoBtn} onPress={() => setPhotoUri(receipt.photo_uri)} activeOpacity={0.75}>
+      {initialReceipt.photo_uri && (
+        <TouchableOpacity style={styles.photoBtn} onPress={() => setPhotoUri(initialReceipt.photo_uri)} activeOpacity={0.75}>
           <Text style={styles.photoBtnText}>🖼  View Photo</Text>
         </TouchableOpacity>
       )}
 
       {/* Actions */}
-      {editing ? (
-        <>
-          <View style={styles.glowWrap}>
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.9}>
-              <Text style={styles.saveTxt}>Save Changes</Text>
-            </TouchableOpacity>
-          </View>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => { setEditing(false); setCategory(receipt.category || 'Other'); }} activeOpacity={0.7}>
-            <Text style={styles.cancelTxt}>Cancel</Text>
+      {status === 'needs_review' && (
+        <View style={[styles.glowWrap, !canMarkReady && { opacity: 0.45 }]}>
+          <TouchableOpacity
+            style={styles.markReadyBtn}
+            onPress={handleMarkReady}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.markReadyTxt}>✓  Mark as Ready</Text>
           </TouchableOpacity>
-        </>
-      ) : (
-        <>
-          {status === 'needs_review' && (
-            <View style={[styles.glowWrap, !canMarkReady && { opacity: 0.45 }]}>
-              <TouchableOpacity
-                style={styles.markReadyBtn}
-                onPress={handleMarkReady}
-                activeOpacity={0.9}
-              >
-                <Text style={styles.markReadyTxt}>✓  Mark as Ready</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)} activeOpacity={0.75}>
-            <Text style={styles.editTxt}>Edit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.deleteBtn} onPress={() => setDeleteDialog(true)} activeOpacity={0.75}>
-            <Text style={styles.deleteTxt}>Delete Receipt</Text>
-          </TouchableOpacity>
-        </>
+        </View>
       )}
+      <TouchableOpacity
+        style={styles.editBtn}
+        onPress={() => navigation.navigate('EditReceipt', { receiptId: initialReceipt.id, onSave })}
+        activeOpacity={0.75}
+      >
+        <Text style={styles.editTxt}>✏️ Edit</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.deleteBtn} onPress={() => setDeleteDialog(true)} activeOpacity={0.75}>
+        <Text style={styles.deleteTxt}>Delete Receipt</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -275,30 +233,6 @@ const styles = StyleSheet.create({
   },
   value:        { fontSize: 20, color: COLORS.textPrimary, fontWeight: '500' },
   valueMissing: { color: COLORS.textTertiary, fontStyle: 'italic', fontSize: 16 },
-  input: {
-    backgroundColor: COLORS.card,
-    borderRadius:    RADIUS.input,
-    borderWidth:     1,
-    borderColor:     COLORS.border,
-    paddingHorizontal: SPACE.md,
-    height:          48,
-    color:           COLORS.textPrimary,
-    fontSize:        16,
-  },
-
-  catChips:         { gap: SPACE.sm, flexDirection: 'row', paddingBottom: SPACE.xs },
-  catChip: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    paddingHorizontal: SPACE.md,
-    paddingVertical:   8,
-    borderRadius:  RADIUS.chip,
-    borderWidth:   1.5,
-    gap:           6,
-  },
-  catChipEmoji:         { fontSize: 14 },
-  catChipText:          { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
-  catChipTextActive:    { color: '#fff' },
 
   notesBox: {
     backgroundColor: COLORS.cardAlt,
@@ -336,23 +270,6 @@ const styles = StyleSheet.create({
     marginTop:       SPACE.sm,
   },
   markReadyTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
-
-  saveBtn: {
-    backgroundColor: COLORS.accent,
-    height:          BTN_HEIGHT,
-    borderRadius:    RADIUS.button,
-    justifyContent:  'center',
-    alignItems:      'center',
-    marginTop:       SPACE.xxl,
-  },
-  saveTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
-
-  cancelBtn: {
-    height:          BTN_HEIGHT,
-    justifyContent:  'center',
-    alignItems:      'center',
-  },
-  cancelTxt: { color: COLORS.textSecondary, fontSize: 15, fontWeight: '500' },
 
   editBtn: {
     backgroundColor: COLORS.card,
