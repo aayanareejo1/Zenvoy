@@ -26,16 +26,34 @@ export const initDb = async () => {
       photo_uri   TEXT,
       created_at  TEXT    NOT NULL,
       updated_at  TEXT,
-      synced      INTEGER DEFAULT 0
+      synced      INTEGER DEFAULT 0,
+      version     INTEGER DEFAULT 1,
+      device_id   TEXT,
+      firestore_id TEXT
+    );
+  `);
+
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS failed_syncs (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      receipt_id    INTEGER NOT NULL,
+      operation     TEXT    NOT NULL,
+      error_message TEXT,
+      attempt_count INTEGER DEFAULT 1,
+      last_attempted TEXT,
+      created_at    TEXT    NOT NULL
     );
   `);
 
   // Safe migrations for installs that predate these columns
   for (const sql of [
-    "ALTER TABLE receipts ADD COLUMN category   TEXT DEFAULT 'Other'",
-    "ALTER TABLE receipts ADD COLUMN status     TEXT DEFAULT 'ready'",
-    "ALTER TABLE receipts ADD COLUMN notes      TEXT DEFAULT '[]'",
-    "ALTER TABLE receipts ADD COLUMN updated_at TEXT",
+    "ALTER TABLE receipts ADD COLUMN category     TEXT DEFAULT 'Other'",
+    "ALTER TABLE receipts ADD COLUMN status       TEXT DEFAULT 'ready'",
+    "ALTER TABLE receipts ADD COLUMN notes        TEXT DEFAULT '[]'",
+    "ALTER TABLE receipts ADD COLUMN updated_at   TEXT",
+    "ALTER TABLE receipts ADD COLUMN version      INTEGER DEFAULT 1",
+    "ALTER TABLE receipts ADD COLUMN device_id    TEXT",
+    "ALTER TABLE receipts ADD COLUMN firestore_id TEXT",
   ]) {
     try { await database.execAsync(sql); } catch (_) { /* column exists */ }
   }
@@ -45,6 +63,7 @@ export const initDb = async () => {
     UPDATE receipts SET status     = 'ready'     WHERE status     IS NULL;
     UPDATE receipts SET notes      = '[]'        WHERE notes      IS NULL;
     UPDATE receipts SET updated_at = created_at  WHERE updated_at IS NULL;
+    UPDATE receipts SET version    = 1           WHERE version    IS NULL;
   `);
 };
 
@@ -65,8 +84,8 @@ export const insertReceipt = async (receipt) => {
   const now = new Date().toISOString();
   const result = await database.runAsync(
     `INSERT INTO receipts
-       (vendor, date, total, tax, category, status, notes, photo_uri, created_at, updated_at, synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (vendor, date, total, tax, category, status, notes, photo_uri, created_at, updated_at, synced, version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       receipt.vendor   || null,
       receipt.date     || null,
@@ -79,6 +98,7 @@ export const insertReceipt = async (receipt) => {
       receipt.created_at || now,
       now,
       0,
+      1,
     ]
   );
   return result.lastInsertRowId;
@@ -89,7 +109,7 @@ export const updateReceipt = async (id, receipt) => {
   const now = new Date().toISOString();
   await database.runAsync(
     `UPDATE receipts
-     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?, updated_at=?
+     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?, updated_at=?, synced=0
      WHERE id=?`,
     [
       receipt.vendor   || null,
@@ -111,7 +131,7 @@ export const updateReceiptFromScan = async (id, fields) => {
   const now = new Date().toISOString();
   await database.runAsync(
     `UPDATE receipts
-     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?, updated_at=?
+     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?, updated_at=?, synced=0
      WHERE id=?`,
     [
       fields.vendor   || null,
@@ -187,4 +207,137 @@ export const getMonthlyCount = async () => {
     [`${month}%`]
   );
   return row?.count ?? 0;
+};
+
+// --- Sync helpers ---
+
+/** Get a single receipt by its local id. */
+export const getReceiptById = async (id) => {
+  const database = await getDb();
+  return deser(await database.getFirstAsync('SELECT * FROM receipts WHERE id=?', [id]));
+};
+
+/** Get all receipts that have not yet been pushed to cloud. */
+export const getUnsynced = async () => {
+  const database = await getDb();
+  return deserAll(await database.getAllAsync(
+    'SELECT * FROM receipts WHERE synced=0'
+  ));
+};
+
+/**
+ * Mark a receipt as synced, recording its Firestore doc ID and version.
+ * Called after a successful push or pull update.
+ */
+export const markReceiptSynced = async (id, firestoreId, version) => {
+  const database = await getDb();
+  await database.runAsync(
+    'UPDATE receipts SET synced=1, firestore_id=?, version=? WHERE id=?',
+    [firestoreId, version, id]
+  );
+};
+
+/** Update the version field of a receipt without touching anything else. */
+export const updateReceiptVersion = async (receiptId, newVersion) => {
+  const database = await getDb();
+  await database.runAsync(
+    'UPDATE receipts SET version=? WHERE id=?',
+    [newVersion, receiptId]
+  );
+};
+
+/**
+ * Insert a receipt that originated in Firestore (pull sync).
+ * Sets synced=1 immediately so it is not pushed back up.
+ */
+export const insertReceiptFromCloud = async (receipt) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  const result = await database.runAsync(
+    `INSERT INTO receipts
+       (vendor, date, total, tax, category, status, notes, photo_uri,
+        created_at, updated_at, synced, version, device_id, firestore_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+    [
+      receipt.vendor       || null,
+      receipt.date         || null,
+      parseFloat(receipt.total)  || 0,
+      parseFloat(receipt.tax)    || 0,
+      receipt.category     || 'Other',
+      receipt.status       || 'ready',
+      ser(receipt.notes),
+      receipt.photo_uri    || null,
+      receipt.created_at   || now,
+      receipt.updated_at   || now,
+      receipt.version      || 1,
+      receipt.device_id    || null,
+      receipt.firestore_id || null,
+    ]
+  );
+  return result.lastInsertRowId;
+};
+
+/**
+ * Update a receipt with cloud data without resetting the synced flag.
+ * Used during pull sync so the receipt is not immediately queued for re-push.
+ */
+export const updateReceiptFromCloud = async (id, fields, firestoreId, version) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `UPDATE receipts
+     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?,
+         updated_at=?, synced=1, firestore_id=?, version=?
+     WHERE id=?`,
+    [
+      fields.vendor   || null,
+      fields.date     || null,
+      parseFloat(fields.total)  || 0,
+      parseFloat(fields.tax)    || 0,
+      fields.category || 'Other',
+      fields.status   || 'ready',
+      ser(fields.notes),
+      now,
+      firestoreId,
+      version,
+      id,
+    ]
+  );
+};
+
+// --- Failed sync queue ---
+
+/** Maximum number of retry attempts for a failed sync before it is abandoned. */
+export const FAILED_SYNC_RETRY_LIMIT = 5;
+
+export const insertFailedSync = async (receiptId, operation, errorMsg) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `INSERT INTO failed_syncs (receipt_id, operation, error_message, attempt_count, last_attempted, created_at)
+     VALUES (?, ?, ?, 1, ?, ?)`,
+    [receiptId, operation, errorMsg || null, now, now]
+  );
+};
+
+/** Get queued failures that have not yet exceeded the retry limit. */
+export const getFailedSyncs = async () => {
+  const database = await getDb();
+  return database.getAllAsync(
+    `SELECT * FROM failed_syncs WHERE attempt_count < ${FAILED_SYNC_RETRY_LIMIT} ORDER BY created_at ASC`
+  );
+};
+
+export const updateFailedSyncAttempt = async (failedSyncId, attemptCount) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    'UPDATE failed_syncs SET attempt_count=?, last_attempted=? WHERE id=?',
+    [attemptCount, now, failedSyncId]
+  );
+};
+
+export const deleteFailedSync = async (id) => {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM failed_syncs WHERE id=?', [id]);
 };

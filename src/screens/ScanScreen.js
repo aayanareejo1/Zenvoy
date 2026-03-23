@@ -264,7 +264,8 @@ export default function ScanScreen({ navigation }) {
       created_at: now,
     };
     receipt.status = deriveStatus(receipt);
-    await insertReceipt(receipt);
+    const newId = await insertReceipt(receipt);
+    receipt.id = newId;
     if (isPro && user) await syncReceiptToFirestore(user.uid, receipt);
     setResult(null);
 
