@@ -7,7 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { parseReceiptWithVision }      from '../services/claude';
 import { preprocessImage, isTooLarge } from '../services/imageProcessor';
-import { insertReceipt, getAllReceipts, getMonthlyCount, deriveStatus } from '../services/db';
+import { insertReceipt, getLatestReceipt, getMonthlyCount, deriveStatus } from '../services/db';
 import { syncReceiptToFirestore }      from '../services/firestore';
 import { useApp }                      from '../context/AppContext';
 import { useToast }                    from '../context/ToastContext';
@@ -87,7 +87,7 @@ export default function ScanScreen({ navigation }) {
 
   // Load most recent receipt for the bottom card (refreshes after save/discard)
   useEffect(() => {
-    getAllReceipts().then(rows => setLastReceipt(rows[0] ?? null));
+    getLatestReceipt().then(setLastReceipt).catch(() => setLastReceipt(null));
   }, [result]);
 
   // ── Paywall ──────────────────────────────────────────────────────────────
