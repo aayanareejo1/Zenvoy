@@ -1,130 +1,200 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
-import { preprocessImage, isTooLarge } from '../services/imageProcessor';
-import { parseReceiptWithVision } from '../services/claude';
-import { updateReceiptFromScan } from '../services/db';
-import { deriveStatus } from '../utils/receiptHelpers';
+import { ActivityIndicator, View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import { processQueueItem } from '../services/backgroundProcessor';
+import { getAllQueueEntries, getQueueEntryById } from '../services/db';
 import Dialog from '../components/Dialog';
 import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE } from '../constants/theme';
 
+// Map queue DB statuses → display labels / colors / icons
 const STATUS_LABEL = {
-  queued:     'Queued',
+  pending:    '⏳ Pending',
   processing: 'Processing…',
-  done:       'Done',
-  failed:     'Failed — enter manually',
+  completed:  'Done',
+  failed:     'Failed — tap to retry',
   skipped:    'Too large — enter manually',
 };
 
 const STATUS_COLOR = {
-  queued:     COLORS.textTertiary,
+  pending:    COLORS.textTertiary,
   processing: COLORS.accent,
-  done:       COLORS.success,
+  completed:  COLORS.success,
   failed:     COLORS.danger,
   skipped:    COLORS.warning,
 };
 
 const STATUS_ICON = {
-  queued:     '○',
+  pending:    '○',
   processing: '◌',
-  done:       '✓',
+  completed:  '✓',
   failed:     '✕',
   skipped:    '⊘',
 };
 
-export default function ProcessingScreen({ route, navigation }) {
-  const { items: initialItems } = route.params;
+const TERMINAL = ['completed', 'failed', 'skipped'];
 
-  const [items, setItems] = useState(
-    initialItems.map(i => ({ ...i, status: 'queued' }))
-  );
+export default function ProcessingScreen({ route, navigation }) {
+  // queueItems: [{ queueId, receiptId, photoUri }]
+  const { queueItems } = route.params;
+
+  // Local per-item state keyed by queueId
+  const [statusMap, setStatusMap] = useState(() => {
+    const map = {};
+    for (const qi of queueItems) map[qi.queueId] = 'pending';
+    return map;
+  });
+  const [errorMap, setErrorMap] = useState({});
   const [cancelDialog, setCancelDialog] = useState(false);
 
-  const cancelledRef = useRef(false);
+  const cancelledRef   = useRef(false);
+  const processingRef  = useRef(new Set()); // queueIds currently in-flight
+  const pollIntervalRef = useRef(null);
 
-  const setItemStatus = useCallback((id, status) => {
-    setItems(prev => prev.map(i => i.id === id ? { ...i, status } : i));
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  const setStatus = useCallback((queueId, status, error = null) => {
+    setStatusMap(prev => ({ ...prev, [queueId]: status }));
+    if (error) setErrorMap(prev => ({ ...prev, [queueId]: error }));
   }, []);
+
+  // ── Queue DB polling (every 1 s) ──────────────────────────────────────────
+
+  const syncFromDb = useCallback(async () => {
+    try {
+      const rows = await getAllQueueEntries();
+      const queueIds = new Set(queueItems.map(qi => qi.queueId));
+      const relevant = rows.filter(r => queueIds.has(r.id));
+
+      setStatusMap(prev => {
+        const next = { ...prev };
+        for (const row of relevant) {
+          const uiStatus = row.status === 'completed' ? 'completed'
+            : row.status === 'failed'     ? 'failed'
+            : row.status === 'processing' ? 'processing'
+            : 'pending';
+          next[row.id] = uiStatus;
+        }
+        return next;
+      });
+      setErrorMap(prev => {
+        const next = { ...prev };
+        for (const row of relevant) {
+          if (row.error_message) next[row.id] = row.error_message;
+        }
+        return next;
+      });
+    } catch (_) { /* ignore poll errors */ }
+  }, [queueItems]);
+
+  // ── Process a single item ─────────────────────────────────────────────────
+
+  const processItem = useCallback(async (qi) => {
+    if (processingRef.current.has(qi.queueId)) return;
+    processingRef.current.add(qi.queueId);
+    setStatus(qi.queueId, 'processing');
+
+    try {
+      await processQueueItem({
+        id:          qi.queueId,
+        receipt_id:  qi.receiptId,
+        photo_uri:   qi.photoUri,
+        retry_count: 0,
+      });
+    } catch (_) { /* handleQueueError inside processQueueItem handles this */ }
+
+    processingRef.current.delete(qi.queueId);
+    // Sync final status from DB
+    await syncFromDb();
+  }, [setStatus, syncFromDb]);
+
+  // ── Run the full queue sequentially ──────────────────────────────────────
+
+  const runQueue = useCallback(async () => {
+    for (const qi of queueItems) {
+      if (cancelledRef.current) break;
+      await processItem(qi);
+    }
+  }, [queueItems, processItem]);
+
+  // ── Effects ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
     runQueue();
-    return () => { cancelledRef.current = true; };
-  }, []);
+    pollIntervalRef.current = setInterval(syncFromDb, 1000);
+    return () => {
+      cancelledRef.current = true;
+      clearInterval(pollIntervalRef.current);
+    };
+  }, [runQueue, syncFromDb]);
 
-  const runQueue = async () => {
-    for (const item of initialItems) {
-      if (cancelledRef.current) break;
+  // Auto-navigate to Inbox 2 seconds after all items are terminal
+  const statuses = Object.values(statusMap);
+  const done         = statuses.filter(s => TERMINAL.includes(s)).length;
+  const allFinished  = done === queueItems.length;
+  const progress     = queueItems.length > 0 ? done / queueItems.length : 0;
 
-      setItemStatus(item.id, 'processing');
-      try {
-        const { uri: processedUri, size } = await preprocessImage(item.photoUri);
-
-        if (isTooLarge(size)) {
-          await updateReceiptFromScan(item.id, {
-            vendor: null, date: null, total: 0, tax: 0,
-            category: 'Other', status: 'needs_review',
-            notes: ['Image too large — please enter manually'],
-          });
-          setItemStatus(item.id, 'skipped');
-          continue;
-        }
-
-        const parsed = await parseReceiptWithVision(processedUri);
-        const status = deriveStatus(parsed);
-
-        await updateReceiptFromScan(item.id, {
-          vendor:   parsed.vendor,
-          date:     parsed.date,
-          total:    parsed.total,
-          tax:      parsed.tax,
-          category: parsed.category,
-          status,
-          notes:    parsed.notes,
-        });
-
-        setItemStatus(item.id, 'done');
-      } catch (e) {
-        await updateReceiptFromScan(item.id, {
-          vendor: null, date: null, total: 0, tax: 0,
-          category: 'Other', status: 'needs_review',
-          notes: [`Processing failed: ${e.message}`],
-        });
-        setItemStatus(item.id, 'failed');
-      }
+  const navigatedRef = useRef(false);
+  useEffect(() => {
+    if (allFinished && !navigatedRef.current) {
+      navigatedRef.current = true;
+      clearInterval(pollIntervalRef.current);
+      const t = setTimeout(() => navigation.navigate('Inbox'), 2000);
+      return () => clearTimeout(t);
     }
-  };
+  }, [allFinished, navigation]);
+
+  // ── Cancel ────────────────────────────────────────────────────────────────
 
   const confirmCancel = async () => {
     setCancelDialog(false);
     cancelledRef.current = true;
-    for (const item of items.filter(i => i.status === 'queued' || i.status === 'processing')) {
-      await updateReceiptFromScan(item.id, {
-        vendor: null, date: null, total: 0, tax: 0,
-        category: 'Other', status: 'needs_review',
-        notes: ['Processing cancelled — please enter manually'],
-      });
-    }
+    clearInterval(pollIntervalRef.current);
     navigation.navigate('Inbox');
   };
 
-  const done        = items.filter(i => ['done', 'failed', 'skipped'].includes(i.status)).length;
-  const allFinished = done === items.length;
-  const progress    = items.length > 0 ? done / items.length : 0;
+  // ── Retry a failed item ───────────────────────────────────────────────────
 
-  const renderItem = ({ item, index }) => (
-    <View style={styles.row}>
-      <View style={[styles.statusIconWrap, { backgroundColor: STATUS_COLOR[item.status] + '18' }]}>
-        <Text style={[styles.statusIcon, { color: STATUS_COLOR[item.status] }]}>
-          {STATUS_ICON[item.status]}
-        </Text>
+  const retryItem = (qi) => {
+    if (cancelledRef.current) return;
+    setStatus(qi.queueId, 'pending');
+    setErrorMap(prev => { const n = { ...prev }; delete n[qi.queueId]; return n; });
+    getQueueEntryById(qi.queueId).then(row => {
+      processQueueItem({
+        id:          qi.queueId,
+        receipt_id:  qi.receiptId,
+        photo_uri:   qi.photoUri,
+        retry_count: row?.retry_count ?? 0,
+      }).then(() => syncFromDb());
+    });
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  const renderItem = ({ item: qi, index }) => {
+    const status = statusMap[qi.queueId] ?? 'pending';
+    const color  = STATUS_COLOR[status] ?? COLORS.textTertiary;
+    const isFailed = status === 'failed';
+
+    return (
+      <View style={styles.row}>
+        <View style={[styles.statusIconWrap, { backgroundColor: color + '18' }]}>
+          {status === 'processing' ? (
+            <ActivityIndicator size="small" color={color} />
+          ) : (
+            <Text style={[styles.statusIcon, { color }]}>{STATUS_ICON[status] ?? '○'}</Text>
+          )}
+        </View>
+        <View style={styles.rowContent}>
+          <Text style={styles.rowNum}>Receipt #{index + 1}</Text>
+          <Text style={[styles.statusText, { color }]}>{STATUS_LABEL[status] ?? 'Pending'}</Text>
+        </View>
+        {isFailed && (
+          <TouchableOpacity style={styles.retryBtn} onPress={() => retryItem(qi)} activeOpacity={0.75}>
+            <Text style={styles.retryBtnText}>Retry</Text>
+          </TouchableOpacity>
+        )}
       </View>
-      <View style={styles.rowContent}>
-        <Text style={styles.rowNum}>Receipt #{index + 1}</Text>
-        <Text style={[styles.statusText, { color: STATUS_COLOR[item.status] }]}>
-          {STATUS_LABEL[item.status]}
-        </Text>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -142,10 +212,10 @@ export default function ProcessingScreen({ route, navigation }) {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.heading}>
-          {allFinished ? 'All done!' : `Processing receipts`}
+          {allFinished ? 'All done!' : 'Processing Receipts'}
         </Text>
         {!allFinished && (
-          <Text style={styles.subtext}>{done} of {items.length} complete</Text>
+          <Text style={styles.subtext}>{done} of {queueItems.length} complete</Text>
         )}
       </View>
 
@@ -155,8 +225,8 @@ export default function ProcessingScreen({ route, navigation }) {
       </View>
 
       <FlatList
-        data={items}
-        keyExtractor={i => String(i.id)}
+        data={queueItems}
+        keyExtractor={qi => String(qi.queueId)}
         renderItem={renderItem}
         contentContainerStyle={{ paddingBottom: 120 }}
         ItemSeparatorComponent={() => <View style={{ height: 6 }} />}
@@ -225,6 +295,15 @@ const styles = StyleSheet.create({
   rowNum:     { fontSize: 15, fontWeight: '600', color: COLORS.textPrimary, marginBottom: 2 },
   statusText: { fontSize: 13, fontWeight: '500' },
 
+  retryBtn: {
+    paddingHorizontal: SPACE.md,
+    paddingVertical:   SPACE.xs,
+    borderRadius:      RADIUS.sm,
+    borderWidth:       1,
+    borderColor:       COLORS.danger,
+  },
+  retryBtnText: { fontSize: 12, fontWeight: '600', color: COLORS.danger },
+
   bottomBtn: {
     position:     'absolute',
     bottom:       SPACE.xxl,
@@ -256,3 +335,4 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: { fontSize: 16, color: COLORS.textSecondary, fontWeight: '500' },
 });
+

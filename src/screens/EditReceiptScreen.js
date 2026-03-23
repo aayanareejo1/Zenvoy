@@ -1,136 +1,109 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, ScrollView, ActivityIndicator,
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  ScrollView, ActivityIndicator,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { getDb } from '../services/db';
 import { useToast } from '../context/ToastContext';
 import Dialog from '../components/Dialog';
+import { getReceiptById, updateReceipt, softDeleteReceipt } from '../services/db';
 import {
-  COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, CATEGORIES,
+  COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE,
+  CATEGORIES, getCategoryInfo,
 } from '../constants/theme';
 
 export default function EditReceiptScreen({ route, navigation }) {
-  const { receiptId, onSave } = route.params;
+  const { receiptId } = route.params;
   const { showToast } = useToast();
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving]   = useState(false);
-  const [deleteDialog, setDeleteDialog] = useState(false);
-
-  const [vendor, setVendor]     = useState('');
-  const [date, setDate]         = useState('');
-  const [total, setTotal]       = useState('');
-  const [tax, setTax]           = useState('');
+  const [loading, setLoading] = useState(true);
+  const [vendor, setVendor] = useState('');
+  const [date, setDate] = useState('');
+  const [total, setTotal] = useState('');
+  const [tax, setTax] = useState('');
   const [category, setCategory] = useState('Other');
   const [notesText, setNotesText] = useState('');
+  const [status, setStatus] = useState('ready');
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [errors, setErrors] = useState({});
 
+  // Load receipt on mount
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const db  = await getDb();
-        const row = await db.getFirstAsync(
-          'SELECT * FROM receipts WHERE id=?',
-          [receiptId]
-        );
-        if (row && !cancelled) {
-          let notes = [];
-          try { notes = JSON.parse(row.notes || '[]'); } catch { notes = []; }
-          setVendor(row.vendor || '');
-          setDate(row.date || '');
-          setTotal(String(row.total ?? ''));
-          setTax(String(row.tax ?? ''));
-          setCategory(row.category || 'Other');
-          setNotesText(notes.join('\n'));
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+    getReceiptById(receiptId).then(r => {
+      if (cancelled || !r) return;
+      setVendor(r.vendor || '');
+      setDate(r.date || '');
+      setTotal(r.total > 0 ? String(r.total) : '');
+      setTax(r.tax > 0 ? String(r.tax) : '');
+      setCategory(r.category || 'Other');
+      setNotesText(Array.isArray(r.notes) ? r.notes.join('\n') : '');
+      setStatus(r.status || 'ready');
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [receiptId]);
 
-  const handleSave = async () => {
-    if (!vendor.trim() || vendor.trim().length < 2) {
-      showToast({ message: 'Vendor name must be at least 2 characters', type: 'warning' });
-      return;
-    }
-    if (!date.trim()) {
-      showToast({ message: 'Date is required', type: 'warning' });
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
-      showToast({ message: 'Date must be in YYYY-MM-DD format', type: 'warning' });
-      return;
-    }
-    if (!total || parseFloat(total) <= 0) {
-      showToast({ message: 'Total must be greater than 0', type: 'warning' });
-      return;
-    }
-    if (tax && parseFloat(tax) < 0) {
-      showToast({ message: 'Tax cannot be negative', type: 'warning' });
-      return;
-    }
+  const validate = useCallback(() => {
+    const errs = {};
+    if (!vendor.trim() || vendor.trim().length < 2) errs.vendor = 'Vendor must be at least 2 characters';
+    if (!date.trim()) errs.date = 'Date is required';
+    const t = parseFloat(total);
+    if (!total.trim() || isNaN(t) || t <= 0) errs.total = 'Total must be a number greater than 0';
+    const tx = parseFloat(tax);
+    if (tax.trim() && (isNaN(tx) || tx < 0)) errs.tax = 'Tax must be 0 or greater';
+    if (!category) errs.category = 'Category is required';
+    return errs;
+  }, [vendor, date, total, tax, category]);
 
-    setIsSaving(true);
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const notes = notesText.split('\n').filter(n => n.trim());
-      const db = await getDb();
-      await db.runAsync(
-        `UPDATE receipts
-         SET vendor=?, date=?, total=?, tax=?, category=?, notes=?, updated_at=?, synced=0
-         WHERE id=?`,
-        [
-          vendor.trim(),
-          date.trim(),
-          parseFloat(total) || 0,
-          parseFloat(tax)   || 0,
-          category,
-          JSON.stringify(notes),
-          new Date().toISOString(),
-          receiptId,
-        ]
-      );
-      showToast({ message: 'Receipt updated', type: 'success' });
-      onSave?.();
-      navigation.goBack();
-    } catch {
-      showToast({ message: 'Failed to update receipt', type: 'error' });
-    } finally {
-      setIsSaving(false);
+  const handleSave = useCallback(async () => {
+    const errs = validate();
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs);
+      showToast({ message: 'Please fix the highlighted fields', type: 'warning' });
+      return;
     }
-  };
+    setErrors({});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const notes = notesText
+      .split('\n')
+      .map(l => l.trim())
+      .filter(Boolean);
+    await updateReceipt(receiptId, {
+      vendor: vendor.trim(),
+      date: date.trim(),
+      total: parseFloat(total),
+      tax: parseFloat(tax) || 0,
+      category,
+      status,
+      notes,
+    });
+    showToast({ message: 'Receipt updated!', type: 'success' });
+    navigation.goBack();
+  }, [validate, notesText, receiptId, vendor, date, total, tax, category, status, showToast, navigation]);
 
-  const confirmDelete = async () => {
+  const confirmDelete = useCallback(async () => {
     setDeleteDialog(false);
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      const db = await getDb();
-      await db.runAsync(
-        `UPDATE receipts SET status='deleted', synced=0, updated_at=? WHERE id=?`,
-        [new Date().toISOString(), receiptId]
-      );
-      showToast({ message: 'Receipt deleted', type: 'success' });
-      onSave?.();
-      navigation.goBack();
-    } catch {
-      showToast({ message: 'Failed to delete receipt', type: 'error' });
-    }
-  };
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    await softDeleteReceipt(receiptId);
+    showToast({ message: 'Receipt deleted', type: 'success' });
+    navigation.goBack();
+  }, [receiptId, showToast, navigation]);
 
-  if (isLoading) {
+  if (loading) {
     return (
-      <View style={styles.loading}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.accent} />
       </View>
     );
   }
 
+  const cat = getCategoryInfo(category);
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Dialog
         visible={deleteDialog}
         title="Delete Receipt"
@@ -141,68 +114,97 @@ export default function EditReceiptScreen({ route, navigation }) {
         onCancel={() => setDeleteDialog(false)}
       />
 
+      {/* Category badge */}
+      <View style={[styles.catBadge, { backgroundColor: cat.color + '18', borderColor: cat.color + '60' }]}>
+        <Text style={styles.catEmoji}>{cat.emoji}</Text>
+        <Text style={[styles.catLabel, { color: cat.color }]}>{cat.label}</Text>
+      </View>
+
+      <Text style={styles.heading}>Edit Receipt</Text>
+
       {/* Vendor */}
       <View style={styles.field}>
-        <Text style={styles.label}>Vendor *</Text>
+        <Text style={styles.label}>
+          Vendor <Text style={styles.required}>*</Text>
+        </Text>
         <TextInput
-          style={styles.input}
-          placeholder="Vendor name"
-          placeholderTextColor={COLORS.textTertiary}
+          style={[styles.input, errors.vendor && styles.inputError]}
           value={vendor}
-          onChangeText={setVendor}
+          onChangeText={t => {
+            setVendor(t);
+            setErrors(e => ({ ...e, vendor: undefined }));
+          }}
+          placeholder="e.g. Starbucks"
+          placeholderTextColor={COLORS.textTertiary}
           selectionColor={COLORS.accent}
+          autoCapitalize="words"
         />
+        {errors.vendor && <Text style={styles.errorText}>{errors.vendor}</Text>}
       </View>
 
       {/* Date */}
       <View style={styles.field}>
-        <Text style={styles.label}>Date *</Text>
+        <Text style={styles.label}>
+          Date <Text style={styles.required}>*</Text>
+        </Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, errors.date && styles.inputError]}
+          value={date}
+          onChangeText={t => {
+            setDate(t);
+            setErrors(e => ({ ...e, date: undefined }));
+          }}
           placeholder="YYYY-MM-DD"
           placeholderTextColor={COLORS.textTertiary}
-          value={date}
-          onChangeText={setDate}
           selectionColor={COLORS.accent}
         />
+        {errors.date && <Text style={styles.errorText}>{errors.date}</Text>}
       </View>
 
       {/* Total */}
       <View style={styles.field}>
-        <Text style={styles.label}>Total *</Text>
+        <Text style={styles.label}>
+          Total <Text style={styles.required}>*</Text>
+        </Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, errors.total && styles.inputError]}
+          value={total}
+          onChangeText={t => {
+            setTotal(t);
+            setErrors(e => ({ ...e, total: undefined }));
+          }}
           placeholder="0.00"
           placeholderTextColor={COLORS.textTertiary}
           keyboardType="decimal-pad"
-          value={total}
-          onChangeText={setTotal}
           selectionColor={COLORS.accent}
         />
+        {errors.total && <Text style={styles.errorText}>{errors.total}</Text>}
       </View>
 
       {/* Tax */}
       <View style={styles.field}>
         <Text style={styles.label}>Tax</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, errors.tax && styles.inputError]}
+          value={tax}
+          onChangeText={t => {
+            setTax(t);
+            setErrors(e => ({ ...e, tax: undefined }));
+          }}
           placeholder="0.00"
           placeholderTextColor={COLORS.textTertiary}
           keyboardType="decimal-pad"
-          value={tax}
-          onChangeText={setTax}
           selectionColor={COLORS.accent}
         />
+        {errors.tax && <Text style={styles.errorText}>{errors.tax}</Text>}
       </View>
 
       {/* Category */}
       <View style={styles.field}>
-        <Text style={styles.label}>Category</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.catChips}
-        >
+        <Text style={[styles.label, errors.category && { color: COLORS.danger }]}>
+          Category <Text style={styles.required}>*</Text>
+        </Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catChips}>
           {CATEGORIES.map(c => (
             <TouchableOpacity
               key={c.key}
@@ -211,7 +213,10 @@ export default function EditReceiptScreen({ route, navigation }) {
                 { borderColor: c.color + '80' },
                 category === c.key && { backgroundColor: c.color, borderColor: c.color },
               ]}
-              onPress={() => setCategory(c.key)}
+              onPress={() => {
+                setCategory(c.key);
+                setErrors(e => ({ ...e, category: undefined }));
+              }}
               activeOpacity={0.75}
             >
               <Text style={styles.catChipEmoji}>{c.emoji}</Text>
@@ -221,6 +226,7 @@ export default function EditReceiptScreen({ route, navigation }) {
             </TouchableOpacity>
           ))}
         </ScrollView>
+        {errors.category && <Text style={styles.errorText}>{errors.category}</Text>}
       </View>
 
       {/* Notes */}
@@ -228,34 +234,25 @@ export default function EditReceiptScreen({ route, navigation }) {
         <Text style={styles.label}>Notes</Text>
         <TextInput
           style={[styles.input, styles.notesInput]}
-          placeholder="Add notes… (one per line)"
-          placeholderTextColor={COLORS.textTertiary}
-          multiline
-          numberOfLines={4}
           value={notesText}
           onChangeText={setNotesText}
+          placeholder="One note per line"
+          placeholderTextColor={COLORS.textTertiary}
+          multiline
+          textAlignVertical="top"
           selectionColor={COLORS.accent}
         />
       </View>
 
       {/* Save */}
-      <View style={[styles.glowWrap, isSaving && { opacity: 0.6 }]}>
-        <TouchableOpacity
-          style={styles.saveBtn}
-          onPress={handleSave}
-          disabled={isSaving}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.saveTxt}>{isSaving ? 'Saving…' : 'Save Changes'}</Text>
+      <View style={[styles.glowWrap, { marginTop: SPACE.xl }]}>
+        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.9}>
+          <Text style={styles.saveTxt}>Save Changes</Text>
         </TouchableOpacity>
       </View>
 
       {/* Delete */}
-      <TouchableOpacity
-        style={styles.deleteBtn}
-        onPress={() => setDeleteDialog(true)}
-        activeOpacity={0.75}
-      >
+      <TouchableOpacity style={styles.deleteBtn} onPress={() => setDeleteDialog(true)} activeOpacity={0.75}>
         <Text style={styles.deleteTxt}>Delete Receipt</Text>
       </TouchableOpacity>
     </ScrollView>
@@ -263,11 +260,39 @@ export default function EditReceiptScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  loading:   { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
-  container: { flex: 1, backgroundColor: COLORS.bg },
-  content:   { padding: H_PAD, paddingBottom: 48 },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
-  field:  { marginBottom: SPACE.xl },
+  container: { flex: 1, backgroundColor: COLORS.bg },
+  content: { padding: H_PAD, paddingBottom: 48 },
+
+  catBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: SPACE.md,
+    paddingVertical: 8,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1.5,
+    gap: 6,
+    marginBottom: SPACE.lg,
+  },
+  catEmoji: { fontSize: 17 },
+  catLabel: { fontSize: 14, fontWeight: '700' },
+
+  heading: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.5,
+    marginBottom: SPACE.xxl,
+  },
+
+  field: { marginBottom: SPACE.xl },
   label: {
     fontSize: 11,
     color: COLORS.textSecondary,
@@ -276,6 +301,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     marginBottom: SPACE.sm,
   },
+  required: { color: COLORS.danger },
   input: {
     backgroundColor: COLORS.card,
     borderRadius: RADIUS.input,
@@ -286,10 +312,19 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontSize: 16,
   },
+  inputError: {
+    borderColor: COLORS.danger,
+  },
   notesInput: {
     height: 100,
     paddingTop: SPACE.md,
-    textAlignVertical: 'top',
+    paddingBottom: SPACE.md,
+  },
+  errorText: {
+    fontSize: 12,
+    color: COLORS.danger,
+    marginTop: SPACE.xs,
+    fontWeight: '500',
   },
 
   catChips: { gap: SPACE.sm, flexDirection: 'row', paddingBottom: SPACE.xs },
@@ -302,15 +337,14 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     gap: 6,
   },
-  catChipEmoji:      { fontSize: 14 },
-  catChipText:       { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
+  catChipEmoji: { fontSize: 14 },
+  catChipText: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
   catChipTextActive: { color: '#fff' },
 
   glowWrap: {
     width: '100%',
     borderRadius: RADIUS.button,
     ...ELEVATION.glow,
-    marginTop: SPACE.lg,
   },
   saveBtn: {
     backgroundColor: COLORS.accent,
@@ -325,7 +359,7 @@ const styles = StyleSheet.create({
     height: BTN_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: SPACE.xs,
+    marginTop: SPACE.sm,
   },
   deleteTxt: { color: COLORS.danger, fontSize: 15, fontWeight: '500' },
 });
