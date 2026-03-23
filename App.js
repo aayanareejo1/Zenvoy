@@ -10,16 +10,20 @@ import { AppProvider, useApp }       from './src/context/AppContext';
 import { ToastProvider }             from './src/context/ToastContext';
 import { SyncProvider }              from './src/context/SyncContext';
 import { ThemeProvider }             from './src/context/ThemeContext';
+import { ErrorProvider }             from './src/context/ErrorContext';
 import SyncStatusBadge               from './src/components/SyncStatusBadge';
-import ScanScreen          from './src/screens/ScanScreen';
-import ProcessingScreen    from './src/screens/ProcessingScreen';
-import ReceiptsScreen      from './src/screens/ReceiptsScreen';
-import ReceiptDetailScreen from './src/screens/ReceiptDetailScreen';
-import InboxScreen         from './src/screens/InboxScreen';
-import ReportsScreen       from './src/screens/ReportsScreen';
-import AccountScreen       from './src/screens/AccountScreen';
-import AnalyticsScreen     from './src/screens/AnalyticsScreen';
-import SearchScreen        from './src/screens/SearchScreen';
+import ScanScreen             from './src/screens/ScanScreen';
+import ProcessingScreen       from './src/screens/ProcessingScreen';
+import ReceiptsScreen         from './src/screens/ReceiptsScreen';
+import ReceiptDetailScreen    from './src/screens/ReceiptDetailScreen';
+import EditReceiptScreen      from './src/screens/EditReceiptScreen';
+import ExportScreen           from './src/screens/ExportScreen';
+import InboxScreen            from './src/screens/InboxScreen';
+import ReportsScreen          from './src/screens/ReportsScreen';
+import AccountScreen          from './src/screens/AccountScreen';
+import SyncManagementScreen   from './src/screens/SyncManagementScreen';
+import AnalyticsScreen        from './src/screens/AnalyticsScreen';
+import SearchScreen           from './src/screens/SearchScreen';
 import OnboardingScreen, { ONBOARDING_KEY } from './src/screens/OnboardingScreen';
 import { COLORS }          from './src/constants/theme';
 
@@ -51,6 +55,8 @@ function ReceiptsStackNav() {
     <ReceiptsStack.Navigator screenOptions={stackOptions}>
       <ReceiptsStack.Screen name="ReceiptsList"  component={ReceiptsScreen}      options={{ title: 'Receipts' }} />
       <ReceiptsStack.Screen name="ReceiptDetail" component={ReceiptDetailScreen} options={{ title: 'Detail' }} />
+      <ReceiptsStack.Screen name="EditReceipt"   component={EditReceiptScreen}   options={{ title: 'Edit Receipt' }} />
+      <ReceiptsStack.Screen name="Export"        component={ExportScreen}        options={{ title: 'Export' }} />
     </ReceiptsStack.Navigator>
   );
 }
@@ -60,6 +66,7 @@ function InboxStackNav() {
     <InboxStack.Navigator screenOptions={stackOptions}>
       <InboxStack.Screen name="InboxList"   component={InboxScreen}        options={{ title: 'Inbox' }} />
       <InboxStack.Screen name="InboxDetail" component={ReceiptDetailScreen} options={{ title: 'Review' }} />
+      <InboxStack.Screen name="EditReceipt" component={EditReceiptScreen}  options={{ title: 'Edit Receipt' }} />
     </InboxStack.Navigator>
   );
 }
@@ -72,6 +79,7 @@ function AccountStackNav() {
         component={AccountScreen}
         options={{ title: 'Account', headerRight: () => <SyncStatusBadge /> }}
       />
+      <AccountStack.Screen name="SyncManagement" component={SyncManagementScreen} options={{ title: 'Sync Issues' }} />
     </AccountStack.Navigator>
   );
 }
@@ -144,12 +152,14 @@ export default function App() {
     <ThemeProvider>
       <AppProvider>
         <ToastProvider>
-          <SyncProvider>
-            <NavigationContainer>
-              <StatusBar style="light" />
-              <MainNav />
-            </NavigationContainer>
-          </SyncProvider>
+          <ErrorProvider>
+            <SyncProvider>
+              <NavigationContainer>
+                <StatusBar style="light" />
+                <MainNav />
+              </NavigationContainer>
+            </SyncProvider>
+          </ErrorProvider>
         </ToastProvider>
       </AppProvider>
     </ThemeProvider>
