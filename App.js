@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { AppProvider, useApp } from './src/context/AppContext';
 import { ToastProvider } from './src/context/ToastContext';
+import { ErrorProvider } from './src/context/ErrorContext';
 import { SyncProvider } from './src/context/SyncContext';
 import ScanScreen from './src/screens/ScanScreen';
 import ProcessingScreen from './src/screens/ProcessingScreen';
@@ -142,10 +143,12 @@ export default function App() {
     <AppProvider>
       <SyncProvider>
         <ToastProvider>
-          <NavigationContainer>
-            <StatusBar style="light" />
-            <Tabs />
-          </NavigationContainer>
+          <ErrorProvider>
+            <NavigationContainer>
+              <StatusBar style="light" />
+              <Tabs />
+            </NavigationContainer>
+          </ErrorProvider>
         </ToastProvider>
       </SyncProvider>
     </AppProvider>
