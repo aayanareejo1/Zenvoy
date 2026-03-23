@@ -87,7 +87,7 @@ export default function ReceiptsScreen({ navigation }) {
         onCancel={() => setDeleteId(null)}
       />
 
-      {/* Search */}
+      {/* Search + Export */}
       <View style={styles.searchWrap}>
         <Text style={styles.searchIcon}>⌕</Text>
         <TextInput
@@ -103,6 +103,13 @@ export default function ReceiptsScreen({ navigation }) {
             <Text style={styles.clearBtn}>✕</Text>
           </TouchableOpacity>
         )}
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Export')}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={styles.exportBtn}
+        >
+          <Text style={styles.exportBtnText}>📊</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Category chips */}
@@ -168,6 +175,8 @@ const styles = StyleSheet.create({
   searchIcon:  { fontSize: 18, color: COLORS.textTertiary },
   search:      { flex: 1, color: COLORS.textPrimary, fontSize: 15 },
   clearBtn:    { fontSize: 13, color: COLORS.textTertiary, fontWeight: '600', padding: 4 },
+  exportBtn:   { padding: 4 },
+  exportBtnText: { fontSize: 18 },
 
   // Chips
   chipScroll:   { marginBottom: SPACE.sm },
