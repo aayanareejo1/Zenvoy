@@ -1,4 +1,4 @@
-import { getFirestore, collection, doc, addDoc, getDocs, getDoc, setDoc } from '@react-native-firebase/firestore';
+import { getFirestore, collection, doc, getDocs, getDoc, setDoc, updateDoc } from '@react-native-firebase/firestore';
 import { insertReceipt, getAllReceipts } from './db';
 import { deriveStatus, normalizeNotes } from '../utils/receiptHelpers';
 
@@ -6,7 +6,8 @@ const db = getFirestore();
 
 export const syncReceiptToFirestore = async (uid, receipt) => {
   try {
-    await addDoc(collection(db, 'users', uid, 'receipts'), {
+    const firestoreId = receipt.firestore_id || String(receipt.id);
+    await setDoc(doc(db, 'users', uid, 'receipts', firestoreId), {
       vendor:    receipt.vendor    || null,
       date:      receipt.date      || null,
       total:     receipt.total,
@@ -17,9 +18,63 @@ export const syncReceiptToFirestore = async (uid, receipt) => {
       photoUri:  receipt.photo_uri || null,
       createdAt: receipt.created_at || null,
       updatedAt: receipt.updated_at || receipt.created_at || null,
+      version:   receipt.version   || 1,
+      deviceId:  receipt.device_id || null,
+      isDeleted: false,
     });
   } catch (e) {
     console.log('Firestore sync error:', e.message);
+  }
+};
+
+/** Push an update for an existing receipt to Firestore. */
+export const updateReceiptInFirestore = async (uid, receipt) => {
+  const firestoreId = receipt.firestore_id || String(receipt.id);
+  await setDoc(doc(db, 'users', uid, 'receipts', firestoreId), {
+    vendor:    receipt.vendor    || null,
+    date:      receipt.date      || null,
+    total:     receipt.total,
+    tax:       receipt.tax,
+    category:  receipt.category  || 'Other',
+    status:    receipt.status    || 'ready',
+    notes:     normalizeNotes(receipt.notes),
+    photoUri:  receipt.photo_uri || null,
+    createdAt: receipt.created_at || null,
+    updatedAt: new Date().toISOString(),
+    version:   receipt.version   || 1,
+    deviceId:  receipt.device_id || null,
+    isDeleted: false,
+  });
+};
+
+/** Soft-delete a receipt in Firestore by marking isDeleted=true. */
+export const softDeleteReceiptInFirestore = async (uid, firestoreId) => {
+  await updateDoc(doc(db, 'users', uid, 'receipts', firestoreId), {
+    isDeleted: true,
+    updatedAt: new Date().toISOString(),
+  });
+};
+
+/** Fetch all cloud receipts for a user. */
+export const getCloudReceipts = async (uid) => {
+  try {
+    const snapshot = await getDocs(collection(db, 'users', uid, 'receipts'));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    console.log('Firestore fetch error:', e.message);
+    return [];
+  }
+};
+
+/** Fetch a single cloud receipt by its Firestore document ID. */
+export const getCloudReceipt = async (uid, firestoreId) => {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid, 'receipts', firestoreId));
+    if (snap.exists()) return { id: snap.id, ...snap.data() };
+    return null;
+  } catch (e) {
+    console.log('Firestore getCloudReceipt error:', e.message);
+    return null;
   }
 };
 
