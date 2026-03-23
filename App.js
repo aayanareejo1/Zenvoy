@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -15,14 +16,16 @@ import ReportsScreen      from './src/screens/ReportsScreen';
 import AccountScreen      from './src/screens/AccountScreen';
 import { COLORS }         from './src/constants/theme';
 
-const Tab         = createBottomTabNavigator();
-const ScanStack   = createNativeStackNavigator();
+const Tab           = createBottomTabNavigator();
+const ScanStack     = createNativeStackNavigator();
 const ReceiptsStack = createNativeStackNavigator();
-const InboxStack  = createNativeStackNavigator();
+const InboxStack    = createNativeStackNavigator();
 
 const stackOptions = {
-  headerStyle:     { backgroundColor: COLORS.bg },
-  headerTintColor: COLORS.textPrimary,
+  headerStyle:            { backgroundColor: COLORS.bgElevated },
+  headerTintColor:        COLORS.textPrimary,
+  headerShadowVisible:    false,
+  headerTitleStyle:       { fontWeight: '700', fontSize: 17 },
 };
 
 function ScanStackNav() {
@@ -57,11 +60,20 @@ function Tabs() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        headerStyle:           { backgroundColor: COLORS.bg },
-        headerTintColor:       COLORS.textPrimary,
-        tabBarStyle:           { backgroundColor: COLORS.bg, borderTopColor: COLORS.border },
+        headerStyle:            { backgroundColor: COLORS.bgElevated },
+        headerTintColor:        COLORS.textPrimary,
+        headerShadowVisible:    false,
+        headerTitleStyle:       { fontWeight: '700', fontSize: 17 },
+        tabBarStyle: {
+          backgroundColor:  COLORS.bgElevated,
+          borderTopColor:   COLORS.border,
+          borderTopWidth:   StyleSheet.hairlineWidth,
+          height:           60,
+          paddingBottom:    8,
+        },
         tabBarActiveTintColor:   COLORS.accent,
-        tabBarInactiveTintColor: COLORS.textSecondary,
+        tabBarInactiveTintColor: COLORS.textTertiary,
+        tabBarLabelStyle:        { fontSize: 11, fontWeight: '600' },
         tabBarIcon: ({ color, size }) => {
           const icons = {
             Scan:     'scan-outline',
