@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Modal,
 import { updateReceipt, deleteReceipt } from '../services/db';
 import { useToast }  from '../context/ToastContext';
 import Dialog        from '../components/Dialog';
-import { COLORS, RADIUS, BTN_HEIGHT, H_PAD, CATEGORIES, getCategoryInfo } from '../constants/theme';
+import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, CATEGORIES, getCategoryInfo } from '../constants/theme';
 
 // ─── Full-screen photo viewer ──────────────────────────────────────────────────
 
@@ -11,7 +11,7 @@ function PhotoViewer({ uri, onClose }) {
   return (
     <Modal visible={!!uri} transparent animationType="fade" onRequestClose={onClose}>
       <View style={viewer.overlay}>
-        <TouchableOpacity style={viewer.closeBtn} onPress={onClose}>
+        <TouchableOpacity style={viewer.closeBtn} onPress={onClose} activeOpacity={0.8}>
           <Text style={viewer.closeTxt}>✕</Text>
         </TouchableOpacity>
         {uri ? (
@@ -39,7 +39,7 @@ export default function ReceiptDetailScreen({ route, navigation }) {
   const [photoUri, setPhotoUri]   = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const notes = receipt.notes || [];
-  const cat = getCategoryInfo(category);
+  const cat   = getCategoryInfo(category);
 
   const canMarkReady = vendor.trim() && date.trim() && parseFloat(total) > 0;
 
@@ -78,8 +78,6 @@ export default function ReceiptDetailScreen({ route, navigation }) {
     navigation.goBack();
   };
 
-  const handleDelete = () => setDeleteDialog(true);
-
   const confirmDelete = async () => {
     setDeleteDialog(false);
     await deleteReceipt(receipt.id);
@@ -100,14 +98,17 @@ export default function ReceiptDetailScreen({ route, navigation }) {
         onCancel={() => setDeleteDialog(false)}
       />
 
+      {/* Needs-review banner */}
       {status === 'needs_review' && (
         <View style={styles.reviewBanner}>
-          <Text style={styles.reviewBannerText}>⚠️  Needs review — some fields may be missing</Text>
+          <Text style={styles.reviewBannerIcon}>⚠</Text>
+          <Text style={styles.reviewBannerText}>Needs review — some fields may be missing</Text>
         </View>
       )}
 
+      {/* Category badge (view mode only) */}
       {!editing && (
-        <View style={[styles.catBadge, { backgroundColor: cat.color + '22', borderColor: cat.color }]}>
+        <View style={[styles.catBadge, { backgroundColor: cat.color + '18', borderColor: cat.color + '60' }]}>
           <Text style={styles.catEmoji}>{cat.emoji}</Text>
           <Text style={[styles.catLabel, { color: cat.color }]}>{cat.label}</Text>
         </View>
@@ -115,11 +116,20 @@ export default function ReceiptDetailScreen({ route, navigation }) {
 
       <Text style={styles.heading}>Receipt Detail</Text>
 
+      {/* Text fields */}
       {[['Vendor', vendor, setVendor, 'default'], ['Date', date, setDate, 'default']].map(([l, v, s, kt]) => (
         <View key={l} style={styles.field}>
           <Text style={styles.label}>{l}</Text>
           {editing
-            ? <TextInput style={styles.input} value={v} onChangeText={s} keyboardType={kt} placeholderTextColor={COLORS.textSecondary} placeholder={`Enter ${l.toLowerCase()}`} />
+            ? <TextInput
+                style={styles.input}
+                value={v}
+                onChangeText={s}
+                keyboardType={kt}
+                placeholderTextColor={COLORS.textTertiary}
+                placeholder={`Enter ${l.toLowerCase()}`}
+                selectionColor={COLORS.accent}
+              />
             : <Text style={[styles.value, !v && styles.valueMissing]}>{v || 'Not set'}</Text>}
         </View>
       ))}
@@ -128,13 +138,21 @@ export default function ReceiptDetailScreen({ route, navigation }) {
         <View key={l} style={styles.field}>
           <Text style={styles.label}>{l}</Text>
           {editing
-            ? <TextInput style={styles.input} value={v} onChangeText={s} keyboardType="decimal-pad" placeholderTextColor={COLORS.textSecondary} />
+            ? <TextInput
+                style={styles.input}
+                value={v}
+                onChangeText={s}
+                keyboardType="decimal-pad"
+                placeholderTextColor={COLORS.textTertiary}
+                selectionColor={COLORS.accent}
+              />
             : <Text style={[styles.value, !parseFloat(v) && l === 'Total' && styles.valueMissing]}>
                 {parseFloat(v) > 0 ? `$${parseFloat(v).toFixed(2)}` : l === 'Total' ? 'Not set' : '$0.00'}
               </Text>}
         </View>
       ))}
 
+      {/* Category picker (edit mode) */}
       {editing && (
         <View style={styles.field}>
           <Text style={styles.label}>Category</Text>
@@ -142,8 +160,9 @@ export default function ReceiptDetailScreen({ route, navigation }) {
             {CATEGORIES.map(c => (
               <TouchableOpacity
                 key={c.key}
-                style={[styles.catChip, { borderColor: c.color }, category === c.key && { backgroundColor: c.color }]}
+                style={[styles.catChip, { borderColor: c.color + '80' }, category === c.key && { backgroundColor: c.color, borderColor: c.color }]}
                 onPress={() => setCategory(c.key)}
+                activeOpacity={0.75}
               >
                 <Text style={styles.catChipEmoji}>{c.emoji}</Text>
                 <Text style={[styles.catChipText, category === c.key && styles.catChipTextActive]}>{c.label}</Text>
@@ -153,45 +172,52 @@ export default function ReceiptDetailScreen({ route, navigation }) {
         </View>
       )}
 
+      {/* AI Notes */}
       {notes.length > 0 && (
         <View style={styles.field}>
           <Text style={styles.label}>AI Notes</Text>
           <View style={styles.notesBox}>
-            {notes.map((n, i) => <Text key={i} style={styles.noteText}>• {n}</Text>)}
+            {notes.map((n, i) => <Text key={i} style={styles.noteText}>· {n}</Text>)}
           </View>
         </View>
       )}
 
       {/* Photo viewer button */}
       {receipt.photo_uri && (
-        <TouchableOpacity style={styles.photoBtn} onPress={() => setPhotoUri(receipt.photo_uri)}>
+        <TouchableOpacity style={styles.photoBtn} onPress={() => setPhotoUri(receipt.photo_uri)} activeOpacity={0.75}>
           <Text style={styles.photoBtnText}>🖼  View Photo</Text>
         </TouchableOpacity>
       )}
 
+      {/* Actions */}
       {editing ? (
         <>
-          <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-            <Text style={styles.saveTxt}>Save Changes</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => { setEditing(false); setCategory(receipt.category || 'Other'); }}>
+          <View style={styles.glowWrap}>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.9}>
+              <Text style={styles.saveTxt}>Save Changes</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => { setEditing(false); setCategory(receipt.category || 'Other'); }} activeOpacity={0.7}>
             <Text style={styles.cancelTxt}>Cancel</Text>
           </TouchableOpacity>
         </>
       ) : (
         <>
           {status === 'needs_review' && (
-            <TouchableOpacity
-              style={[styles.markReadyBtn, !canMarkReady && styles.markReadyBtnDisabled]}
-              onPress={handleMarkReady}
-            >
-              <Text style={styles.markReadyTxt}>✓  Mark as Ready</Text>
-            </TouchableOpacity>
+            <View style={[styles.glowWrap, !canMarkReady && { opacity: 0.45 }]}>
+              <TouchableOpacity
+                style={styles.markReadyBtn}
+                onPress={handleMarkReady}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.markReadyTxt}>✓  Mark as Ready</Text>
+              </TouchableOpacity>
+            </View>
           )}
-          <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
+          <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)} activeOpacity={0.75}>
             <Text style={styles.editTxt}>Edit</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
+          <TouchableOpacity style={styles.deleteBtn} onPress={() => setDeleteDialog(true)} activeOpacity={0.75}>
             <Text style={styles.deleteTxt}>Delete Receipt</Text>
           </TouchableOpacity>
         </>
@@ -201,45 +227,167 @@ export default function ReceiptDetailScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container:            { flex: 1, backgroundColor: COLORS.bg },
-  content:              { padding: H_PAD, paddingBottom: 40 },
-  reviewBanner:         { backgroundColor: COLORS.warning + '22', borderRadius: RADIUS.input, borderWidth: 1, borderColor: COLORS.warning, padding: 12, marginBottom: 16 },
-  reviewBannerText:     { color: COLORS.warning, fontSize: 13, fontWeight: '600' },
-  catBadge:             { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, gap: 6, marginBottom: 16 },
-  catEmoji:             { fontSize: 18 },
-  catLabel:             { fontSize: 14, fontWeight: '700' },
-  heading:              { fontSize: 22, fontWeight: '700', color: COLORS.textPrimary, marginBottom: 24 },
-  field:                { marginBottom: 20 },
-  label:                { fontSize: 12, color: COLORS.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-  value:                { fontSize: 18, color: COLORS.textPrimary, fontWeight: '500' },
-  valueMissing:         { color: COLORS.textSecondary, fontStyle: 'italic' },
-  input:                { backgroundColor: COLORS.card, borderRadius: RADIUS.input, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 12, height: 44, color: COLORS.textPrimary, fontSize: 16 },
-  catChips:             { gap: 8, flexDirection: 'row', paddingBottom: 4 },
-  catChip:              { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, gap: 6 },
-  catChipEmoji:         { fontSize: 15 },
+  container: { flex: 1, backgroundColor: COLORS.bg },
+  content:   { padding: H_PAD, paddingBottom: 48 },
+
+  reviewBanner: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    backgroundColor: COLORS.warningMuted,
+    borderRadius:    RADIUS.md,
+    borderWidth:     1,
+    borderColor:     COLORS.warning + '55',
+    padding:         SPACE.md,
+    marginBottom:    SPACE.lg,
+    gap:             SPACE.sm,
+  },
+  reviewBannerIcon: { fontSize: 15, color: COLORS.warning },
+  reviewBannerText: { color: COLORS.warning, fontSize: 13, fontWeight: '600', flex: 1 },
+
+  catBadge: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    alignSelf:     'flex-start',
+    paddingHorizontal: SPACE.md,
+    paddingVertical:   8,
+    borderRadius:  RADIUS.pill,
+    borderWidth:   1.5,
+    gap:           6,
+    marginBottom:  SPACE.lg,
+  },
+  catEmoji: { fontSize: 17 },
+  catLabel: { fontSize: 14, fontWeight: '700' },
+
+  heading: { fontSize: 26, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.5, marginBottom: SPACE.xxl },
+
+  field:  { marginBottom: SPACE.xl },
+  label: {
+    fontSize: 11,
+    color:    COLORS.textSecondary,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: SPACE.sm,
+  },
+  value:        { fontSize: 20, color: COLORS.textPrimary, fontWeight: '500' },
+  valueMissing: { color: COLORS.textTertiary, fontStyle: 'italic', fontSize: 16 },
+  input: {
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.input,
+    borderWidth:     1,
+    borderColor:     COLORS.border,
+    paddingHorizontal: SPACE.md,
+    height:          48,
+    color:           COLORS.textPrimary,
+    fontSize:        16,
+  },
+
+  catChips:         { gap: SPACE.sm, flexDirection: 'row', paddingBottom: SPACE.xs },
+  catChip: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    paddingHorizontal: SPACE.md,
+    paddingVertical:   8,
+    borderRadius:  RADIUS.chip,
+    borderWidth:   1.5,
+    gap:           6,
+  },
+  catChipEmoji:         { fontSize: 14 },
   catChipText:          { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
   catChipTextActive:    { color: '#fff' },
-  notesBox:             { backgroundColor: COLORS.cardAlt, borderRadius: RADIUS.input, padding: 12, gap: 4 },
-  noteText:             { fontSize: 13, color: COLORS.warning, lineHeight: 18 },
-  photoBtn:             { borderWidth: 1, borderColor: COLORS.border, borderRadius: RADIUS.button, height: 44, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  photoBtnText:         { fontSize: 14, color: COLORS.textSecondary, fontWeight: '600' },
-  markReadyBtn:         { backgroundColor: COLORS.accent, height: BTN_HEIGHT, borderRadius: RADIUS.button, justifyContent: 'center', alignItems: 'center', marginTop: 8 },
-  markReadyBtnDisabled: { opacity: 0.4 },
-  markReadyTxt:         { fontSize: 16, fontWeight: '700', color: COLORS.bg },
-  saveBtn:              { backgroundColor: COLORS.accent, height: BTN_HEIGHT, borderRadius: RADIUS.button, justifyContent: 'center', alignItems: 'center', marginTop: 16 },
-  saveTxt:              { fontSize: 16, fontWeight: '700', color: COLORS.bg },
-  cancelBtn:            { height: BTN_HEIGHT, justifyContent: 'center', alignItems: 'center' },
-  cancelTxt:            { color: COLORS.textSecondary, fontSize: 16 },
-  editBtn:              { backgroundColor: COLORS.card, height: BTN_HEIGHT, borderRadius: RADIUS.button, justifyContent: 'center', alignItems: 'center', marginTop: 16, borderWidth: 1, borderColor: COLORS.border },
-  editTxt:              { color: COLORS.textPrimary, fontSize: 16, fontWeight: '600' },
-  deleteBtn:            { height: BTN_HEIGHT, justifyContent: 'center', alignItems: 'center', marginTop: 8 },
-  deleteTxt:            { color: COLORS.danger, fontSize: 16 },
+
+  notesBox: {
+    backgroundColor: COLORS.cardAlt,
+    borderRadius:    RADIUS.md,
+    padding:         SPACE.md,
+    gap:             SPACE.xs,
+    borderWidth:     StyleSheet.hairlineWidth,
+    borderColor:     COLORS.border,
+  },
+  noteText: { fontSize: 13, color: COLORS.warning, lineHeight: 19 },
+
+  photoBtn: {
+    borderWidth:   1,
+    borderColor:   COLORS.border,
+    borderRadius:  RADIUS.button,
+    height:        46,
+    justifyContent: 'center',
+    alignItems:    'center',
+    marginBottom:  SPACE.sm,
+    backgroundColor: COLORS.cardAlt,
+  },
+  photoBtnText: { fontSize: 14, color: COLORS.textSecondary, fontWeight: '600' },
+
+  glowWrap: {
+    width:        '100%',
+    borderRadius: RADIUS.button,
+    ...ELEVATION.glow,
+  },
+  markReadyBtn: {
+    backgroundColor: COLORS.accent,
+    height:          BTN_HEIGHT,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    marginTop:       SPACE.sm,
+  },
+  markReadyTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+
+  saveBtn: {
+    backgroundColor: COLORS.accent,
+    height:          BTN_HEIGHT,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    marginTop:       SPACE.xxl,
+  },
+  saveTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+
+  cancelBtn: {
+    height:          BTN_HEIGHT,
+    justifyContent:  'center',
+    alignItems:      'center',
+  },
+  cancelTxt: { color: COLORS.textSecondary, fontSize: 15, fontWeight: '500' },
+
+  editBtn: {
+    backgroundColor: COLORS.card,
+    height:          BTN_HEIGHT,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    marginTop:       SPACE.lg,
+    borderWidth:     1,
+    borderColor:     COLORS.border,
+  },
+  editTxt: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '600' },
+
+  deleteBtn: {
+    height:          BTN_HEIGHT,
+    justifyContent:  'center',
+    alignItems:      'center',
+    marginTop:       SPACE.xs,
+  },
+  deleteTxt: { color: COLORS.danger, fontSize: 15, fontWeight: '500' },
 });
 
 const viewer = StyleSheet.create({
   overlay:     { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
   image:       { width: '100%', height: '100%' },
-  closeBtn:    { position: 'absolute', top: 48, right: 20, zIndex: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center' },
+  closeBtn: {
+    position:        'absolute',
+    top:             48,
+    right:           20,
+    zIndex:          10,
+    width:           40,
+    height:          40,
+    borderRadius:    20,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    justifyContent:  'center',
+    alignItems:      'center',
+    borderWidth:     StyleSheet.hairlineWidth,
+    borderColor:     'rgba(255,255,255,0.2)',
+  },
   closeTxt:    { color: '#fff', fontSize: 16, fontWeight: '700' },
-  unavailable: { color: '#666', fontSize: 16 },
+  unavailable: { color: '#555', fontSize: 16 },
 });

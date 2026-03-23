@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
-  ActivityIndicator, ScrollView, StyleSheet,
+  Animated, ActivityIndicator, ScrollView, StyleSheet,
+  Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { parseReceiptWithVision }    from '../services/claude';
@@ -11,7 +11,7 @@ import { syncReceiptToFirestore }    from '../services/firestore';
 import { useApp }                    from '../context/AppContext';
 import { useToast }                  from '../context/ToastContext';
 import Sheet, { SheetOption }        from '../components/Sheet';
-import { COLORS, RADIUS, BTN_HEIGHT, H_PAD, CATEGORIES } from '../constants/theme';
+import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, CATEGORIES } from '../constants/theme';
 import { FREE_MONTHLY_LIMIT }        from '../constants/config';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -21,6 +21,26 @@ const checkScanLimit = async (isPro) => {
   const count = await getMonthlyCount();
   return count < FREE_MONTHLY_LIMIT;
 };
+
+// Animated press wrapper used for primary CTA
+function PressableScale({ children, style, onPress, activeScale = 0.97 }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onIn  = () => Animated.spring(scale, { toValue: activeScale, damping: 20, stiffness: 400, useNativeDriver: true }).start();
+  const onOut = () => Animated.spring(scale, { toValue: 1,           damping: 20, stiffness: 300, useNativeDriver: true }).start();
+  return (
+    <Animated.View style={[style, { transform: [{ scale }] }]}>
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={onIn}
+        onPressOut={onOut}
+        activeOpacity={1}
+        style={{ width: '100%' }}
+      >
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 
 // ─── Main screen ───────────────────────────────────────────────────────────────
 
@@ -37,14 +57,13 @@ export default function ScanScreen({ navigation }) {
   const [category, setCategory] = useState('Other');
   const [notes, setNotes]       = useState([]);
 
-  // Sheet visibility states
-  const [sourceSheet,   setSourceSheet]   = useState(false); // single-scan source
-  const [multiSheet,    setMultiSheet]    = useState(false); // multi-scan source
-  const [tooLargeSheet, setTooLargeSheet] = useState(false); // image too large
-  const [paywallSheet,  setPaywallSheet]  = useState(false); // monthly limit
-  const [againSheet,    setAgainSheet]    = useState(false); // "capture another?"
+  // Sheet visibility
+  const [sourceSheet,   setSourceSheet]   = useState(false);
+  const [multiSheet,    setMultiSheet]    = useState(false);
+  const [tooLargeSheet, setTooLargeSheet] = useState(false);
+  const [paywallSheet,  setPaywallSheet]  = useState(false);
+  const [againSheet,    setAgainSheet]    = useState(false);
 
-  // Resolve ref for the Promise-based "capture another?" flow
   const againResolveRef = useRef(null);
 
   // ── Paywall ────────────────────────────────────────────────────────────────
@@ -115,7 +134,6 @@ export default function ScanScreen({ navigation }) {
     setMultiSheet(true);
   };
 
-  // Promise-based "capture another?" — resolves when user picks Yes or No
   const askCaptureAgain = () =>
     new Promise(resolve => {
       againResolveRef.current = resolve;
@@ -185,7 +203,7 @@ export default function ScanScreen({ navigation }) {
     navigation.navigate('Processing', { items: queueItems });
   };
 
-  // ── Save (single scan) ─────────────────────────────────────────────────────
+  // ── Save ───────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
     const now = new Date().toISOString();
@@ -220,33 +238,47 @@ export default function ScanScreen({ navigation }) {
     }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render: Loading ────────────────────────────────────────────────────────
 
   if (loading) {
     return (
       <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color={COLORS.accent} />
-        <Text style={styles.loadingText}>Reading receipt…</Text>
+        <View style={styles.loadingCard}>
+          <View style={styles.spinnerWrap}>
+            <ActivityIndicator size="large" color={COLORS.accent} />
+          </View>
+          <Text style={styles.loadingTitle}>Analyzing receipt</Text>
+          <Text style={styles.loadingSubtext}>This usually takes a few seconds</Text>
+        </View>
       </View>
     );
   }
 
+  // ── Render: Result (Review & Save) ────────────────────────────────────────
+
   if (result) {
     return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.heading}>Review & Edit</Text>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.reviewHeading}>Review & Save</Text>
+        <Text style={styles.reviewSubtext}>Verify the details before saving</Text>
+
         <Field label="Vendor" value={vendor} onChange={setVendor} warn={!vendor} />
         <Field label="Date"   value={date}   onChange={setDate}   warn={!date} />
         <Field label="Total"  value={total}  onChange={setTotal}  warn={!total} prefix="$" keyboardType="decimal-pad" />
         <Field label="Tax"    value={tax}    onChange={setTax}    warn={false}  prefix="$" keyboardType="decimal-pad" />
 
-        <Text style={styles.categoryLabel}>Category</Text>
+        <Text style={styles.sectionLabel}>Category</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll} contentContainerStyle={styles.categoryContent}>
           {CATEGORIES.map(cat => (
             <TouchableOpacity
               key={cat.key}
-              style={[styles.categoryChip, { borderColor: cat.color }, category === cat.key && { backgroundColor: cat.color }]}
+              style={[styles.categoryChip, { borderColor: cat.color + '80' }, category === cat.key && { backgroundColor: cat.color, borderColor: cat.color }]}
               onPress={() => setCategory(cat.key)}
+              activeOpacity={0.75}
             >
               <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
               <Text style={[styles.categoryChipText, category === cat.key && styles.categoryChipTextActive]}>
@@ -258,74 +290,104 @@ export default function ScanScreen({ navigation }) {
 
         {notes.length > 0 && (
           <View style={styles.notesBox}>
-            {notes.map((n, i) => <Text key={i} style={styles.noteText}>• {n}</Text>)}
+            <Text style={styles.notesLabel}>AI Notes</Text>
+            {notes.map((n, i) => <Text key={i} style={styles.noteText}>· {n}</Text>)}
           </View>
         )}
 
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-          <Text style={styles.saveBtnText}>Save Receipt</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.cancelBtn} onPress={() => setResult(null)}>
-          <Text style={styles.cancelBtnText}>Cancel</Text>
+        {/* Save CTA with glow */}
+        <View style={styles.glowWrap}>
+          <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.9}>
+            <Text style={styles.saveBtnText}>Save Receipt</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity style={styles.cancelBtn} onPress={() => setResult(null)} activeOpacity={0.7}>
+          <Text style={styles.cancelBtnText}>Discard</Text>
         </TouchableOpacity>
       </ScrollView>
     );
   }
 
+  // ── Render: Hero (Idle) ───────────────────────────────────────────────────
+
   return (
     <View style={[styles.container, styles.center]}>
 
-      {/* ── Source chooser — single scan ──────────────────────────────────── */}
+      {/* ── Sheets ──────────────────────────────────────────────────────── */}
+
       <Sheet visible={sourceSheet} onClose={() => setSourceSheet(false)} title="Scan Receipt">
-        <SheetOption icon="📷" label="Camera"        onPress={() => pickSingle('camera')}  />
-        <SheetOption icon="🖼️" label="Photo Library" onPress={() => pickSingle('gallery')} last />
+        <SheetOption icon="📷" label="Take Photo"    sublabel="Use your camera"          onPress={() => pickSingle('camera')}  />
+        <SheetOption icon="🖼️" label="Choose Photo"  sublabel="Pick from library"         onPress={() => pickSingle('gallery')} last />
       </Sheet>
 
-      {/* ── Source chooser — multi scan ───────────────────────────────────── */}
       <Sheet visible={multiSheet} onClose={() => setMultiSheet(false)} title="Multi Scan">
-        <SheetOption icon="📷" label="Camera"        sublabel="Capture one at a time" onPress={() => { setMultiSheet(false); doMultiScan('camera');  }} />
-        <SheetOption icon="🖼️" label="Photo Library" sublabel="Select multiple at once" onPress={() => { setMultiSheet(false); doMultiScan('gallery'); }} last />
+        <SheetOption icon="📷" label="Camera"        sublabel="Capture one at a time"     onPress={() => { setMultiSheet(false); doMultiScan('camera');  }} />
+        <SheetOption icon="🖼️" label="Photo Library" sublabel="Select multiple at once"   onPress={() => { setMultiSheet(false); doMultiScan('gallery'); }} last />
       </Sheet>
 
-      {/* ── Image too large ───────────────────────────────────────────────── */}
       <Sheet visible={tooLargeSheet} onClose={() => setTooLargeSheet(false)} title="Image Too Large">
         <Text style={sheet.body}>
-          The photo couldn't be compressed enough to process. Try cropping tighter or retaking closer to the receipt.
+          The photo couldn't be compressed enough. Try cropping tighter or retaking closer to the receipt.
         </Text>
         <SheetOption icon="📷" label="Retake / Recrop" onPress={() => { setTooLargeSheet(false); setSourceSheet(true); }} />
         <SheetOption icon="✏️" label="Enter Manually"  onPress={() => { setTooLargeSheet(false); setResult({ photo_uri: null }); }} last />
       </Sheet>
 
-      {/* ── Paywall ───────────────────────────────────────────────────────── */}
       <Sheet visible={paywallSheet} onClose={() => setPaywallSheet(false)} title="Monthly Limit Reached">
         <Text style={sheet.body}>
-          Free accounts can scan {FREE_MONTHLY_LIMIT} receipts per month. Upgrade to Pro for unlimited scans and cloud backup.
+          Free accounts can scan {FREE_MONTHLY_LIMIT} receipts per month.{'\n'}Upgrade to Pro for unlimited scans and cloud backup.
         </Text>
-        <TouchableOpacity style={sheet.upgradeBtn} onPress={() => { setPaywallSheet(false); navigation.navigate('Account'); }}>
-          <Text style={sheet.upgradeTxt}>Upgrade to Pro</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={sheet.cancelOption} onPress={() => setPaywallSheet(false)}>
+        <View style={sheet.glowWrap}>
+          <TouchableOpacity style={sheet.upgradeBtn} onPress={() => { setPaywallSheet(false); navigation.navigate('Account'); }} activeOpacity={0.9}>
+            <Text style={sheet.upgradeTxt}>Upgrade to Pro</Text>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity style={sheet.cancelOption} onPress={() => setPaywallSheet(false)} activeOpacity={0.7}>
           <Text style={sheet.cancelTxt}>Maybe later</Text>
         </TouchableOpacity>
       </Sheet>
 
-      {/* ── Capture another? (multi-scan camera loop) ─────────────────────── */}
       <Sheet visible={againSheet} onClose={() => resolveAgain(false)} title="Receipt added">
         <SheetOption icon="➕" label="Capture another" onPress={() => resolveAgain(true)}  />
-        <SheetOption icon="✅" label="Done"            onPress={() => resolveAgain(false)} last />
+        <SheetOption icon="✅" label="Done scanning"   onPress={() => resolveAgain(false)} last />
       </Sheet>
 
-      <Text style={styles.logo}>Zenvoy</Text>
-      <Text style={styles.tagline}>Scan. Save. Done.</Text>
-      <TouchableOpacity style={styles.scanBtn} onPress={handleScan}>
-        <Text style={styles.scanBtnText}>📷  Scan Receipt</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.multiBtn} onPress={handleMultiScan}>
-        <Text style={styles.multiBtnText}>⚡  Multi Scan</Text>
-      </TouchableOpacity>
+      {/* ── Hero content ────────────────────────────────────────────────── */}
+
+      <View style={styles.heroSection}>
+        <Text style={styles.logo}>Zenvoy</Text>
+        <Text style={styles.tagline}>Receipts, organized.</Text>
+      </View>
+
+      <View style={styles.ctaSection}>
+        {/* Primary CTA — teal glow */}
+        <PressableScale style={styles.glowWrap} onPress={handleScan}>
+          <View style={styles.scanBtn}>
+            <Text style={styles.scanBtnIcon}>⬡</Text>
+            <Text style={styles.scanBtnText}>Scan Receipt</Text>
+          </View>
+        </PressableScale>
+
+        {/* Divider */}
+        <View style={styles.orRow}>
+          <View style={styles.orLine} />
+          <Text style={styles.orText}>or</Text>
+          <View style={styles.orLine} />
+        </View>
+
+        {/* Secondary CTA */}
+        <TouchableOpacity style={styles.multiBtn} onPress={handleMultiScan} activeOpacity={0.75}>
+          <Text style={styles.multiBtnText}>⚡  Multi Scan</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.bottomSpacer} />
     </View>
   );
 }
+
+// ─── Field ────────────────────────────────────────────────────────────────────
 
 function Field({ label, value, onChange, warn, prefix, keyboardType }) {
   return (
@@ -338,8 +400,9 @@ function Field({ label, value, onChange, warn, prefix, keyboardType }) {
           value={value}
           onChangeText={onChange}
           keyboardType={keyboardType || 'default'}
-          placeholderTextColor={COLORS.textSecondary}
+          placeholderTextColor={COLORS.textTertiary}
           placeholder={`Enter ${label.toLowerCase()}`}
+          selectionColor={COLORS.accent}
         />
       </View>
       {warn && <Text style={styles.warnText}>Not detected — please enter manually</Text>}
@@ -347,45 +410,182 @@ function Field({ label, value, onChange, warn, prefix, keyboardType }) {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container:              { flex: 1, backgroundColor: COLORS.bg, paddingHorizontal: H_PAD },
-  center:                 { justifyContent: 'center', alignItems: 'center' },
-  scrollContent:          { paddingVertical: 24 },
-  logo:                   { fontSize: 36, fontWeight: '800', color: COLORS.accent, marginBottom: 8 },
-  tagline:                { fontSize: 16, color: COLORS.textSecondary, marginBottom: 48 },
-  scanBtn:                { backgroundColor: COLORS.accent, height: BTN_HEIGHT, paddingHorizontal: 40, borderRadius: RADIUS.button, justifyContent: 'center', alignItems: 'center', width: '100%', marginBottom: 12 },
-  scanBtnText:            { fontSize: 18, fontWeight: '700', color: COLORS.bg },
-  multiBtn:               { height: BTN_HEIGHT, paddingHorizontal: 40, borderRadius: RADIUS.button, justifyContent: 'center', alignItems: 'center', width: '100%', borderWidth: 1.5, borderColor: COLORS.border },
-  multiBtnText:           { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
-  heading:                { fontSize: 22, fontWeight: '700', color: COLORS.textPrimary, marginBottom: 20 },
-  field:                  { marginBottom: 16 },
-  fieldLabel:             { fontSize: 13, color: COLORS.textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
-  inputRow:               { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, borderRadius: RADIUS.input, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 12 },
-  inputWarn:              { borderColor: COLORS.warning },
-  prefix:                 { color: COLORS.textPrimary, fontSize: 16, marginRight: 4 },
-  input:                  { flex: 1, height: 44, color: COLORS.textPrimary, fontSize: 16 },
-  warnText:               { fontSize: 12, color: COLORS.warning, marginTop: 4 },
-  loadingText:            { color: COLORS.textSecondary, marginTop: 16, fontSize: 16 },
-  categoryLabel:          { fontSize: 13, color: COLORS.textSecondary, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
-  categoryScroll:         { marginBottom: 8 },
-  categoryContent:        { paddingBottom: 8, gap: 8, flexDirection: 'row' },
-  categoryChip:           { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: RADIUS.chip, borderWidth: 1.5, backgroundColor: 'transparent', gap: 6 },
-  categoryEmoji:          { fontSize: 16 },
+  container:   { flex: 1, backgroundColor: COLORS.bg, paddingHorizontal: H_PAD },
+  center:      { justifyContent: 'center', alignItems: 'center' },
+
+  // ── Hero layout
+  heroSection: { alignItems: 'center', marginBottom: SPACE.huge },
+  logo:        { fontSize: 42, fontWeight: '800', color: COLORS.accent, letterSpacing: -1.5, marginBottom: 10 },
+  tagline:     { fontSize: 16, color: COLORS.textSecondary, fontWeight: '400', letterSpacing: 0.2 },
+
+  ctaSection:  { width: '100%', gap: 0 },
+  bottomSpacer:{ height: SPACE.huge },
+
+  // ── Glow wrapper (iOS colored shadow, Android elevation)
+  glowWrap: {
+    width: '100%',
+    borderRadius: RADIUS.button,
+    ...ELEVATION.glow,
+  },
+
+  // ── Primary scan button
+  scanBtn: {
+    backgroundColor: COLORS.accent,
+    height:          BTN_HEIGHT,
+    borderRadius:    RADIUS.button,
+    flexDirection:   'row',
+    justifyContent:  'center',
+    alignItems:      'center',
+    gap:             10,
+  },
+  scanBtnIcon: { fontSize: 20 },
+  scanBtnText: { fontSize: 18, fontWeight: '700', color: COLORS.bg, letterSpacing: -0.3 },
+
+  // ── Divider
+  orRow:  { flexDirection: 'row', alignItems: 'center', marginVertical: SPACE.lg },
+  orLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: COLORS.border },
+  orText: { fontSize: 13, color: COLORS.textTertiary, fontWeight: '500', marginHorizontal: SPACE.md },
+
+  // ── Secondary multi-scan
+  multiBtn: {
+    height:          BTN_HEIGHT,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    borderWidth:     1,
+    borderColor:     COLORS.borderStrong,
+    backgroundColor: COLORS.cardAlt,
+  },
+  multiBtnText: { fontSize: 16, fontWeight: '600', color: COLORS.textPrimary },
+
+  // ── Loading state
+  loadingCard: {
+    alignItems:      'center',
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.xl,
+    padding:         SPACE.xxxl,
+    width:           '80%',
+    borderWidth:     StyleSheet.hairlineWidth,
+    borderColor:     COLORS.border,
+    gap:             SPACE.sm,
+    ...ELEVATION.card,
+  },
+  spinnerWrap: {
+    width:           64,
+    height:          64,
+    borderRadius:    32,
+    backgroundColor: COLORS.accentMuted,
+    justifyContent:  'center',
+    alignItems:      'center',
+    marginBottom:    SPACE.md,
+  },
+  loadingTitle:   { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.3 },
+  loadingSubtext: { fontSize: 14, color: COLORS.textSecondary },
+
+  // ── Review / result state
+  scrollContent:   { paddingVertical: SPACE.xxl, paddingBottom: 40 },
+  reviewHeading:   { fontSize: 26, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.5, marginBottom: 4 },
+  reviewSubtext:   { fontSize: 14, color: COLORS.textSecondary, marginBottom: SPACE.xxl },
+
+  field:       { marginBottom: SPACE.lg },
+  sectionLabel: { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600', letterSpacing: 0.6,
+                  textTransform: 'uppercase', marginBottom: SPACE.sm },
+  fieldLabel:  { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600', letterSpacing: 0.6,
+                 textTransform: 'uppercase', marginBottom: SPACE.sm },
+  inputRow: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.input,
+    borderWidth:     1,
+    borderColor:     COLORS.border,
+    paddingHorizontal: SPACE.md,
+  },
+  inputWarn:   { borderColor: COLORS.warning },
+  prefix:      { color: COLORS.textSecondary, fontSize: 16, marginRight: SPACE.xs },
+  input:       { flex: 1, height: 48, color: COLORS.textPrimary, fontSize: 16 },
+  warnText:    { fontSize: 12, color: COLORS.warning, marginTop: SPACE.xs, fontWeight: '500' },
+
+  categoryScroll:         { marginBottom: SPACE.sm },
+  categoryContent:        { paddingBottom: SPACE.sm, gap: SPACE.sm, flexDirection: 'row' },
+  categoryChip: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    paddingHorizontal: SPACE.md,
+    paddingVertical: 8,
+    borderRadius:    RADIUS.chip,
+    borderWidth:     1.5,
+    backgroundColor: 'transparent',
+    gap:             6,
+  },
+  categoryEmoji:          { fontSize: 15 },
   categoryChipText:       { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
   categoryChipTextActive: { color: '#fff' },
-  saveBtn:                { backgroundColor: COLORS.accent, height: BTN_HEIGHT, borderRadius: RADIUS.button, justifyContent: 'center', alignItems: 'center', marginTop: 24 },
-  saveBtnText:            { fontSize: 16, fontWeight: '700', color: COLORS.bg },
-  cancelBtn:              { height: BTN_HEIGHT, borderRadius: RADIUS.button, justifyContent: 'center', alignItems: 'center', marginTop: 12 },
-  cancelBtnText:          { fontSize: 16, color: COLORS.textSecondary },
-  notesBox:               { backgroundColor: COLORS.cardAlt, borderRadius: RADIUS.input, padding: 12, marginBottom: 16, gap: 4 },
-  noteText:               { fontSize: 13, color: COLORS.warning, lineHeight: 18 },
+
+  notesBox: {
+    backgroundColor: COLORS.cardAlt,
+    borderRadius:    RADIUS.md,
+    padding:         SPACE.md,
+    marginBottom:    SPACE.lg,
+    gap:             SPACE.xs,
+    borderWidth:     StyleSheet.hairlineWidth,
+    borderColor:     COLORS.border,
+  },
+  notesLabel: { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600', letterSpacing: 0.5,
+                textTransform: 'uppercase', marginBottom: SPACE.xs },
+  noteText: { fontSize: 13, color: COLORS.warning, lineHeight: 19 },
+
+  saveBtn: {
+    backgroundColor: COLORS.accent,
+    height:          BTN_HEIGHT,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    marginTop:       SPACE.xxl,
+  },
+  saveBtnText: { fontSize: 17, fontWeight: '700', color: COLORS.bg, letterSpacing: -0.2 },
+
+  cancelBtn: {
+    height:          BTN_HEIGHT,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    marginTop:       SPACE.sm,
+  },
+  cancelBtnText: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
 });
 
-// Styles used inside Sheet content (paywall / tooLarge body text)
+// Styles inside Sheet content (paywall / tooLarge)
 const sheet = StyleSheet.create({
-  body:          { fontSize: 14, color: COLORS.textSecondary, lineHeight: 20, marginBottom: 20, textAlign: 'center', paddingHorizontal: 4 },
-  upgradeBtn:    { backgroundColor: COLORS.accent, height: BTN_HEIGHT, borderRadius: RADIUS.button, justifyContent: 'center', alignItems: 'center', marginBottom: 4 },
-  upgradeTxt:    { fontSize: 16, fontWeight: '700', color: COLORS.bg },
-  cancelOption:  { height: BTN_HEIGHT, justifyContent: 'center', alignItems: 'center' },
-  cancelTxt:     { fontSize: 15, color: COLORS.textSecondary },
+  body: {
+    fontSize:        15,
+    color:           COLORS.textSecondary,
+    lineHeight:      22,
+    marginBottom:    SPACE.xl,
+    textAlign:       'center',
+    paddingHorizontal: SPACE.xs,
+  },
+  glowWrap: {
+    width:        '100%',
+    borderRadius: RADIUS.button,
+    ...ELEVATION.glow,
+  },
+  upgradeBtn: {
+    backgroundColor: COLORS.accent,
+    height:          BTN_HEIGHT,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    marginBottom:    SPACE.xs,
+  },
+  upgradeTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  cancelOption: {
+    height:          BTN_HEIGHT,
+    justifyContent:  'center',
+    alignItems:      'center',
+  },
+  cancelTxt: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
 });
