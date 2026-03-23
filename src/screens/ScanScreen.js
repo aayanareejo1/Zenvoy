@@ -28,7 +28,7 @@ const checkScanLimit = async (isPro) => {
 
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 
-// Pressable with spring scale + optional haptic on tap
+// Generic spring-scale pressable with optional haptic
 function PressableScale({ children, style, onPress, activeScale = 0.97, haptic = 'medium' }) {
   const scale = useRef(new Animated.Value(1)).current;
   const onIn  = () => Animated.spring(scale, { toValue: activeScale, damping: 20, stiffness: 400, useNativeDriver: true }).start();
@@ -42,6 +42,37 @@ function PressableScale({ children, style, onPress, activeScale = 0.97, haptic =
     <Animated.View style={[style, { transform: [{ scale }] }]}>
       <TouchableOpacity onPress={handlePress} onPressIn={onIn} onPressOut={onOut} activeOpacity={1} style={{ width: '100%' }}>
         {children}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// Primary scan CTA — scale + glow dim on press
+function PrimaryCtaButton({ onPress }) {
+  const scale   = useRef(new Animated.Value(1)).current;
+  const outerOp = useRef(new Animated.Value(1)).current;
+  const onIn = () => Animated.parallel([
+    Animated.spring(scale,   { toValue: 0.97, damping: 20, stiffness: 400, useNativeDriver: true }),
+    Animated.timing(outerOp, { toValue: 0.72, duration: 70, useNativeDriver: true }),
+  ]).start();
+  const onOut = () => Animated.parallel([
+    Animated.spring(scale,   { toValue: 1,    damping: 20, stiffness: 300, useNativeDriver: true }),
+    Animated.timing(outerOp, { toValue: 1,    duration: 140, useNativeDriver: true }),
+  ]).start();
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onPress?.();
+  };
+  return (
+    <Animated.View style={[s.primaryGlowWrap, { transform: [{ scale }], opacity: outerOp }]}>
+      <TouchableOpacity
+        style={s.primaryBtn}
+        onPress={handlePress}
+        onPressIn={onIn}
+        onPressOut={onOut}
+        activeOpacity={0.92}
+      >
+        <Text style={s.primaryBtnTxt}>Scan Receipt</Text>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -353,7 +384,6 @@ export default function ScanScreen({ navigation }) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Header */}
           <View style={s.reviewHeader}>
             <Text style={s.reviewTitle}>Review & Save</Text>
             <Text style={s.reviewSubtitle}>
@@ -361,7 +391,6 @@ export default function ScanScreen({ navigation }) {
             </Text>
           </View>
 
-          {/* Details card */}
           <SectionLabel>Receipt Details</SectionLabel>
           <View style={s.detailsCard}>
             <RowInput label="Vendor" value={vendor} onChange={setVendor} warn={!vendor} />
@@ -370,7 +399,6 @@ export default function ScanScreen({ navigation }) {
             <RowInput label="Tax"    value={tax}    onChange={setTax}                   prefix="$" keyboardType="decimal-pad" last />
           </View>
 
-          {/* Category */}
           <SectionLabel>Category</SectionLabel>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
             {CATEGORIES.map(cat => (
@@ -398,7 +426,6 @@ export default function ScanScreen({ navigation }) {
             ))}
           </ScrollView>
 
-          {/* AI notes */}
           {notes.length > 0 && (
             <>
               <SectionLabel>AI Notes</SectionLabel>
@@ -410,7 +437,6 @@ export default function ScanScreen({ navigation }) {
             </>
           )}
 
-          {/* Actions */}
           <PressableScale style={[s.saveGlow, { marginTop: SPACE.xl }]} onPress={handleSave} haptic={null}>
             <View style={s.saveBtn}>
               <Text style={s.saveBtnTxt}>Save Receipt</Text>
@@ -430,13 +456,23 @@ export default function ScanScreen({ navigation }) {
     <View style={s.screen}>
       {Sheets}
 
-      {/* Header */}
+      {/* Background layers — absolute, pointerEvents none */}
+      <View style={s.bgGlow}  pointerEvents="none" />
+      <View style={s.bgNoise} pointerEvents="none" />
+
+      {/* Header — fixed above scroll */}
       <ScreenHeader title="Zenvoy" subtitle="Receipts, organized." />
 
-      {/* Hero area — top-aligned with subtle background glow */}
-      <View style={s.heroArea}>
-        <View style={s.heroAreaGlow} pointerEvents="none" />
+      {/* Content — scrollable for small screens */}
+      <ScrollView
+        style={s.idleScroll}
+        contentContainerStyle={s.idleContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Hero card */}
         <View style={s.heroCard}>
+          <View style={s.heroCardTopLine} />
           <View style={s.heroIconWrap}>
             <ReceiptIconGraphic />
           </View>
@@ -445,34 +481,28 @@ export default function ScanScreen({ navigation }) {
             Point at any receipt for instant data extraction.
           </Text>
         </View>
-      </View>
 
-      {/* CTA + secondary actions */}
-      <View style={s.bottomArea}>
+        {/* Actions module */}
+        <View style={s.actionsCard}>
+          <PrimaryCtaButton onPress={() => pickSingle('camera')} />
 
-        {/* Primary: Scan (camera) */}
-        <PressableScale style={s.primaryGlow} onPress={() => pickSingle('camera')}>
-          <View style={s.primaryBtn}>
-            <Text style={s.primaryBtnTxt}>Scan Receipt</Text>
-          </View>
-        </PressableScale>
+          <View style={s.actionsCardDivider} />
 
-        {/* Secondary: Import from Photos — link-row style */}
-        <TouchableOpacity style={s.importRow} onPress={() => pickSingle('gallery')} activeOpacity={0.7}>
-          <View style={s.importIconDot}>
-            <Text style={s.importIconChar}>↑</Text>
-          </View>
-          <Text style={s.importRowLabel}>Import from Photos</Text>
-        </TouchableOpacity>
+          {/* Secondary: Import from Photos */}
+          <TouchableOpacity style={s.importRow} onPress={() => pickSingle('gallery')} activeOpacity={0.7}>
+            <View style={s.importIconDot}>
+              <Text style={s.importIconChar}>↑</Text>
+            </View>
+            <Text style={s.importRowLabel}>Import from Photos</Text>
+          </TouchableOpacity>
 
-        {/* Tertiary row */}
-        <View style={s.tertiaryRow}>
-          <TouchableOpacity onPress={handleMultiScan} activeOpacity={0.7} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          {/* Tertiary: Batch scan — left-aligned footer action */}
+          <TouchableOpacity onPress={handleMultiScan} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={s.tertiaryLink}>Batch scan  ›</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Recent receipt card, or tip card if no receipts yet */}
+        {/* Recent receipt or tip */}
         {lastReceipt ? (
           <TouchableOpacity style={s.lastScanCard} onPress={() => navigation.navigate('Receipts')} activeOpacity={0.8}>
             <View style={s.lastScanLeft}>
@@ -494,7 +524,7 @@ export default function ScanScreen({ navigation }) {
             <Text style={s.tipText}>Crop tight to the receipt for best results</Text>
           </View>
         )}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -530,12 +560,13 @@ function ReceiptIconGraphic() {
 
 const s = StyleSheet.create({
 
-  // ── Layout skeleton
+  // ── Root
   screen: {
     flex:            1,
     backgroundColor: COLORS.bg,
   },
 
+  // ── Header
   header: {
     paddingHorizontal: H_PAD,
     paddingTop:        SPACE.xl,
@@ -554,48 +585,74 @@ const s = StyleSheet.create({
     fontWeight: '400',
   },
 
-  // Hero area — top-aligned, not centered
+  // ── Idle background layers (absolute, behind everything)
+  bgGlow: {
+    position:        'absolute',
+    top:             0,
+    left:            -100,
+    right:           -100,
+    height:          260,
+    borderRadius:    130,
+    backgroundColor: COLORS.accentMuted,   // rgba(0,196,160,0.09)
+    opacity:         0.07,
+  },
+  bgNoise: {
+    position:        'absolute',
+    top:             0,
+    left:            0,
+    right:           0,
+    bottom:          0,
+    backgroundColor: COLORS.cardAlt,
+    opacity:         0.03,
+  },
+
+  // ── Idle scroll
+  idleScroll: { flex: 1 },
+  idleContent: {
+    paddingHorizontal: H_PAD,
+    paddingTop:        SPACE.xxl,
+    paddingBottom:     SPACE.xxxl,
+    gap:               SPACE.lg,
+  },
+
+  // ── Hero area (processing / error states only)
   heroArea: {
     flex:              1,
     paddingHorizontal: H_PAD,
-    paddingTop:        SPACE.xxl,
-    overflow:          'hidden',
+    justifyContent:    'center',
   },
-
-  // Extremely faint accent arch behind the card
-  heroAreaGlow: {
-    position:              'absolute',
-    top:                   0,
-    left:                  0,
-    right:                 0,
-    height:                180,
-    backgroundColor:       COLORS.accentMuted,  // rgba(0,196,160,0.09)
-    borderBottomLeftRadius:  140,
-    borderBottomRightRadius: 140,
-  },
-
   bottomArea: {
     paddingHorizontal: H_PAD,
     paddingBottom:     SPACE.xxl,
     paddingTop:        SPACE.md,
-    gap:               SPACE.sm,
   },
 
-  // ── Hero card
+  // ── Hero card — shared across idle / processing / error
   heroCard: {
-    backgroundColor: COLORS.card,
-    borderRadius:    RADIUS.xl,
-    borderWidth:     StyleSheet.hairlineWidth,
-    borderColor:     COLORS.accent + '18',     // subtle accent tint
-    padding:         SPACE.xxxl,
-    alignItems:      'center',
-    gap:             SPACE.sm,
+    backgroundColor:  COLORS.card,
+    borderRadius:     RADIUS.xl,
+    borderWidth:      StyleSheet.hairlineWidth,
+    borderColor:      COLORS.accent + '18',
+    paddingTop:       SPACE.xxl,
+    paddingBottom:    SPACE.xl,
+    paddingHorizontal: SPACE.xxxl,
+    alignItems:       'center',
+    gap:              SPACE.sm,
+    overflow:         'hidden',       // contains absolute heroCardTopLine
     ...ELEVATION.card,
   },
 
-  heroIconWrap: {
-    marginBottom: SPACE.md,
+  // Subtle top-edge highlight (idle state only, rendered inside heroCard)
+  heroCardTopLine: {
+    position:        'absolute',
+    top:             0,
+    left:            0,
+    right:           0,
+    height:          1,
+    backgroundColor: '#FFFFFF14',
   },
+
+  heroIconWrap: { marginBottom: SPACE.md },
 
   // Receipt graphic
   receiptOuter: {
@@ -625,21 +682,37 @@ const s = StyleSheet.create({
   },
 
   heroCardTitle: {
-    fontSize:      20,
-    fontWeight:    '700',
+    fontSize:      22,
+    fontWeight:    '800',
     color:         COLORS.textPrimary,
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
     textAlign:     'center',
   },
   heroCardBody: {
-    fontSize:   14,
+    fontSize:   13,
     color:      COLORS.textSecondary,
     textAlign:  'center',
     lineHeight: 20,
   },
 
-  // ── Primary CTA — glow + border highlight
-  primaryGlow: {
+  // ── Actions card (wraps all three CTA tiers)
+  actionsCard: {
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.lg,
+    borderWidth:     StyleSheet.hairlineWidth,
+    borderColor:     COLORS.border,
+    padding:         SPACE.lg,
+    gap:             SPACE.md,
+    ...ELEVATION.card,
+  },
+  actionsCardDivider: {
+    height:           StyleSheet.hairlineWidth,
+    backgroundColor:  COLORS.border,
+    marginHorizontal: -SPACE.lg,  // bleed to card edges
+  },
+
+  // ── Primary CTA
+  primaryGlowWrap: {
     width:        '100%',
     borderRadius: RADIUS.button,
     ...ELEVATION.glow,
@@ -651,7 +724,7 @@ const s = StyleSheet.create({
     justifyContent:  'center',
     alignItems:      'center',
     borderWidth:     1,
-    borderColor:     COLORS.accent + '55',   // soft highlight rim
+    borderColor:     COLORS.accent + '55',
   },
   primaryBtnTxt: {
     fontSize:      17,
@@ -660,29 +733,26 @@ const s = StyleSheet.create({
     letterSpacing: -0.2,
   },
 
-  // ── Secondary: Import from Photos — link-row style (clear hierarchy below primary)
+  // ── Secondary: Import
   importRow: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    height:          46,
-    backgroundColor: COLORS.cardAlt,
-    borderRadius:    RADIUS.button,
-    borderWidth:     1,
-    borderColor:     COLORS.border,
-    paddingHorizontal: SPACE.lg,
-    gap:             SPACE.sm,
+    flexDirection: 'row',
+    alignItems:    'center',
+    height:        44,
+    gap:           SPACE.sm,
   },
   importIconDot: {
     width:           26,
     height:          26,
     borderRadius:    13,
-    backgroundColor: COLORS.border,
+    backgroundColor: COLORS.cardAlt,
+    borderWidth:     1,
+    borderColor:     COLORS.border,
     justifyContent:  'center',
     alignItems:      'center',
   },
   importIconChar: {
-    fontSize:   13,
-    fontWeight: '600',
+    fontSize:   12,
+    fontWeight: '700',
     color:      COLORS.textSecondary,
     lineHeight: 16,
   },
@@ -693,15 +763,11 @@ const s = StyleSheet.create({
     color:      COLORS.textSecondary,
   },
 
-  // ── Tertiary: Batch scan
-  tertiaryRow: {
-    alignItems:      'center',
-    paddingVertical: SPACE.xs,
-  },
+  // ── Tertiary: Batch scan (left-aligned, muted)
   tertiaryLink: {
-    fontSize:   13,
-    color:      COLORS.textTertiary,
-    fontWeight: '600',
+    fontSize:      12,
+    color:         COLORS.textTertiary,
+    fontWeight:    '600',
     letterSpacing: 0.1,
   },
 
@@ -710,13 +776,13 @@ const s = StyleSheet.create({
     flexDirection:   'row',
     alignItems:      'center',
     justifyContent:  'space-between',
-    backgroundColor: COLORS.cardAlt,
+    backgroundColor: COLORS.card,
     borderRadius:    RADIUS.md,
     borderWidth:     StyleSheet.hairlineWidth,
     borderColor:     COLORS.border,
     paddingVertical:   SPACE.md,
     paddingHorizontal: SPACE.md,
-    marginTop:       SPACE.xs,
+    ...ELEVATION.card,
   },
   lastScanLeft:   { flex: 1, gap: 3, marginRight: SPACE.md },
   lastScanLabel: {
@@ -747,24 +813,25 @@ const s = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ── Tip card (shown when no receipts yet)
+  // ── Tip card (no receipts yet)
   tipCard: {
     flexDirection:   'row',
     alignItems:      'center',
-    backgroundColor: COLORS.cardAlt,
+    backgroundColor: COLORS.card,
     borderRadius:    RADIUS.md,
     borderWidth:     StyleSheet.hairlineWidth,
     borderColor:     COLORS.border,
     paddingVertical:   SPACE.md,
     paddingHorizontal: SPACE.md,
     gap:             SPACE.sm,
-    marginTop:       SPACE.xs,
   },
   tipBubble: {
     width:           22,
     height:          22,
     borderRadius:    11,
-    backgroundColor: COLORS.border,
+    backgroundColor: COLORS.cardAlt,
+    borderWidth:     1,
+    borderColor:     COLORS.border,
     justifyContent:  'center',
     alignItems:      'center',
   },
@@ -865,7 +932,6 @@ const s = StyleSheet.create({
     ...ELEVATION.card,
   },
 
-  // Category chips — unified 1px border, smaller emoji
   chipRow: {
     flexDirection: 'row',
     gap:           SPACE.sm,
@@ -878,15 +944,14 @@ const s = StyleSheet.create({
     paddingHorizontal: SPACE.md,
     paddingVertical:   7,
     borderRadius:      RADIUS.chip,
-    borderWidth:       1,                // was 1.5
+    borderWidth:       1,
     backgroundColor:   'transparent',
     gap:               5,
   },
-  chipEmoji:      { fontSize: 11 },      // was 14
+  chipEmoji:      { fontSize: 11 },
   chipText:       { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
   chipTextActive: { color: '#fff' },
 
-  // AI Notes
   notesCard: {
     backgroundColor: COLORS.cardAlt,
     borderRadius:    RADIUS.md,
@@ -898,7 +963,6 @@ const s = StyleSheet.create({
   },
   noteRow: { fontSize: 13, color: COLORS.warning, lineHeight: 19 },
 
-  // Save / discard — saveGlow now wraps PressableScale
   saveGlow: {
     width:        '100%',
     borderRadius: RADIUS.button,
