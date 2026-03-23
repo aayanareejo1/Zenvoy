@@ -15,6 +15,7 @@ import InboxScreen        from './src/screens/InboxScreen';
 import ReportsScreen      from './src/screens/ReportsScreen';
 import AccountScreen      from './src/screens/AccountScreen';
 import { COLORS }         from './src/constants/theme';
+import { registerBackgroundTask } from './src/services/backgroundProcessor';
 
 const Tab           = createBottomTabNavigator();
 const ScanStack     = createNativeStackNavigator();
@@ -96,6 +97,10 @@ function Tabs() {
 }
 
 export default function App() {
+  React.useEffect(() => {
+    registerBackgroundTask();
+  }, []);
+
   return (
     <AppProvider>
       <ToastProvider>
