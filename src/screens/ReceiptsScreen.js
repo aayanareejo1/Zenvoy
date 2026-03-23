@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, SectionList, TouchableOpacity, TextInput, Alert, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, SectionList, TouchableOpacity, TextInput, ScrollView, StyleSheet } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getReadyReceipts, deleteReceipt } from '../services/db';
+import Dialog from '../components/Dialog';
 import { COLORS, RADIUS, H_PAD, CATEGORIES, getCategoryInfo } from '../constants/theme';
 
 const ALL_KEY = 'All';
@@ -21,9 +22,10 @@ function groupByMonth(receipts) {
 }
 
 export default function ReceiptsScreen({ navigation }) {
-  const [receipts, setReceipts] = useState([]);
-  const [search, setSearch] = useState('');
+  const [receipts, setReceipts]   = useState([]);
+  const [search, setSearch]       = useState('');
   const [activeCategory, setActiveCategory] = useState(ALL_KEY);
+  const [deleteId, setDeleteId]   = useState(null);
 
   const load = useCallback(async () => {
     const data = await getReadyReceipts();
@@ -32,12 +34,14 @@ export default function ReceiptsScreen({ navigation }) {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const handleDelete = useCallback((id) => {
-    Alert.alert('Delete Receipt', 'Are you sure?', [
-      { text: 'Delete', style: 'destructive', onPress: async () => { await deleteReceipt(id); load(); } },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  }, [load]);
+  const handleDelete = useCallback((id) => setDeleteId(id), []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteId) return;
+    await deleteReceipt(deleteId);
+    setDeleteId(null);
+    load();
+  }, [deleteId, load]);
 
   const sections = useMemo(() => {
     const lowerSearch = search.toLowerCase();
@@ -81,6 +85,15 @@ export default function ReceiptsScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
+      <Dialog
+        visible={!!deleteId}
+        title="Delete Receipt"
+        message="This receipt will be permanently removed."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteId(null)}
+      />
       <TextInput
         style={styles.search}
         placeholder="Search by vendor..."

@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { AppProvider, useApp } from './src/context/AppContext';
+import { ToastProvider }       from './src/context/ToastContext';
 import ScanScreen         from './src/screens/ScanScreen';
 import ProcessingScreen   from './src/screens/ProcessingScreen';
 import ReceiptsScreen     from './src/screens/ReceiptsScreen';
@@ -85,10 +86,12 @@ function Tabs() {
 export default function App() {
   return (
     <AppProvider>
-      <NavigationContainer>
-        <StatusBar style="light" />
-        <Tabs />
-      </NavigationContainer>
+      <ToastProvider>
+        <NavigationContainer>
+          <StatusBar style="light" />
+          <Tabs />
+        </NavigationContainer>
+      </ToastProvider>
     </AppProvider>
   );
 }
