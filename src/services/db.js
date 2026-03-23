@@ -1,7 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { deriveStatus, normalizeNotes } from '../utils/receiptHelpers';
 
-// Re-export so existing callers don't need to change their imports.
 export { deriveStatus };
 
 let db;
@@ -13,71 +12,80 @@ export const getDb = async () => {
 
 export const initDb = async () => {
   const database = await getDb();
-  await database.execAsync(`
-    CREATE TABLE IF NOT EXISTS receipts (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      vendor      TEXT,
-      date        TEXT,
-      total       REAL    NOT NULL DEFAULT 0,
-      tax         REAL    NOT NULL DEFAULT 0,
-      category    TEXT    DEFAULT 'Other',
-      status      TEXT    DEFAULT 'ready',
-      notes       TEXT    DEFAULT '[]',
-      photo_uri   TEXT,
-      created_at  TEXT    NOT NULL,
-      updated_at  TEXT,
-      synced      INTEGER DEFAULT 0,
-      version     INTEGER DEFAULT 1,
-      device_id   TEXT,
-      firestore_id TEXT
-    );
-  `);
 
   await database.execAsync(`
-    CREATE TABLE IF NOT EXISTS failed_syncs (
-      id               INTEGER PRIMARY KEY AUTOINCREMENT,
-      receipt_id       INTEGER NOT NULL,
-      operation        TEXT,
-      error_message    TEXT,
-      attempt_count    INTEGER NOT NULL DEFAULT 1,
-      last_attempted   TEXT,
-      last_attempt_at  TEXT,
-      created_at       TEXT    NOT NULL
+    CREATE TABLE IF NOT EXISTS receipts (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      vendor       TEXT,
+      date         TEXT,
+      total        REAL    NOT NULL DEFAULT 0,
+      tax          REAL    NOT NULL DEFAULT 0,
+      category     TEXT    DEFAULT 'Other',
+      status       TEXT    DEFAULT 'ready',
+      notes        TEXT    DEFAULT '[]',
+      photo_uri    TEXT,
+      created_at   TEXT    NOT NULL,
+      updated_at   TEXT,
+      synced       INTEGER DEFAULT 0,
+      version      INTEGER DEFAULT 1,
+      device_id    TEXT,
+      firestore_id TEXT
     );
+
     CREATE TABLE IF NOT EXISTS receipt_queue (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      receipt_id   INTEGER NOT NULL,
+      photo_uri    TEXT    NOT NULL,
+      status       TEXT    NOT NULL DEFAULT 'pending',
+      attempts     INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT    NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS failed_syncs (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       receipt_id    INTEGER NOT NULL,
-      photo_uri     TEXT    NOT NULL,
-      status        TEXT    NOT NULL DEFAULT 'pending',
-      error_message TEXT,
-      retry_count   INTEGER NOT NULL DEFAULT 0,
-      created_at    TEXT    NOT NULL,
-      started_at    TEXT,
-      completed_at  TEXT,
-      result        TEXT
+      operation     TEXT,
+      error         TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 1,
+      failed_at     TEXT    NOT NULL
     );
   `);
 
   // Safe migrations for installs that predate these columns
   for (const sql of [
-    "ALTER TABLE receipts ADD COLUMN category     TEXT DEFAULT 'Other'",
-    "ALTER TABLE receipts ADD COLUMN status       TEXT DEFAULT 'ready'",
-    "ALTER TABLE receipts ADD COLUMN notes        TEXT DEFAULT '[]'",
+    "ALTER TABLE receipts ADD COLUMN category     TEXT    DEFAULT 'Other'",
+    "ALTER TABLE receipts ADD COLUMN status       TEXT    DEFAULT 'ready'",
+    "ALTER TABLE receipts ADD COLUMN notes        TEXT    DEFAULT '[]'",
     "ALTER TABLE receipts ADD COLUMN updated_at   TEXT",
+    "ALTER TABLE receipts ADD COLUMN synced       INTEGER DEFAULT 0",
     "ALTER TABLE receipts ADD COLUMN version      INTEGER DEFAULT 1",
     "ALTER TABLE receipts ADD COLUMN device_id    TEXT",
     "ALTER TABLE receipts ADD COLUMN firestore_id TEXT",
+    "ALTER TABLE receipts ADD COLUMN tags         TEXT    DEFAULT '[]'",
+    "ALTER TABLE receipts ADD COLUMN ocr_confidence INTEGER DEFAULT NULL",
   ]) {
     try { await database.execAsync(sql); } catch (_) { /* column exists */ }
   }
 
-  // Backfill rows that predate the new columns
+  // Backfill rows that predate new columns
   await database.execAsync(`
-    UPDATE receipts SET status     = 'ready'     WHERE status     IS NULL;
-    UPDATE receipts SET notes      = '[]'        WHERE notes      IS NULL;
-    UPDATE receipts SET updated_at = created_at  WHERE updated_at IS NULL;
-    UPDATE receipts SET version    = 1           WHERE version    IS NULL;
+    UPDATE receipts SET status     = 'ready'    WHERE status     IS NULL;
+    UPDATE receipts SET notes      = '[]'       WHERE notes      IS NULL;
+    UPDATE receipts SET updated_at = created_at WHERE updated_at IS NULL;
+    UPDATE receipts SET synced     = 0          WHERE synced     IS NULL;
+    UPDATE receipts SET version    = 1          WHERE version    IS NULL;
   `);
+
+  // Indexes for query performance
+  for (const sql of [
+    'CREATE INDEX IF NOT EXISTS idx_receipts_status     ON receipts(status)',
+    'CREATE INDEX IF NOT EXISTS idx_receipts_date       ON receipts(date)',
+    'CREATE INDEX IF NOT EXISTS idx_receipts_created_at ON receipts(created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_receipts_synced     ON receipts(synced)',
+    'CREATE INDEX IF NOT EXISTS idx_queue_status        ON receipt_queue(status)',
+  ]) {
+    try { await database.execAsync(sql); } catch (_) { /* index exists */ }
+  }
 };
 
 // --- Serialisation helpers (module-private) ---
@@ -86,6 +94,7 @@ const ser   = (notes) => JSON.stringify(normalizeNotes(notes));
 const deser = (row) => {
   if (!row) return row;
   try { row.notes = JSON.parse(row.notes || '[]'); } catch { row.notes = []; }
+  try { row.tags  = JSON.parse(row.tags  || '[]'); } catch { row.tags  = []; }
   return row;
 };
 const deserAll = (rows) => rows.map(deser);
@@ -122,7 +131,8 @@ export const updateReceipt = async (id, receipt) => {
   const now = new Date().toISOString();
   await database.runAsync(
     `UPDATE receipts
-     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?, updated_at=?, synced=0, version=version+1
+     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?,
+         updated_at=?, synced=0, version=version+1
      WHERE id=?`,
     [
       receipt.vendor   || null,
@@ -165,7 +175,7 @@ export const deleteReceipt = async (id) => {
   await database.runAsync('DELETE FROM receipts WHERE id=?', [id]);
 };
 
-/** Soft-delete: marks the receipt as deleted and flags it for cloud sync. */
+/** Soft-delete: marks status='deleted' and flags for cloud sync. */
 export const softDeleteReceipt = async (id) => {
   const database = await getDb();
   const now = new Date().toISOString();
@@ -179,10 +189,7 @@ export const softDeleteReceipt = async (id) => {
 
 export const getReceiptById = async (id) => {
   const database = await getDb();
-  const row = await database.getFirstAsync(
-    'SELECT * FROM receipts WHERE id=?',
-    [id]
-  );
+  const row = await database.getFirstAsync('SELECT * FROM receipts WHERE id=?', [id]);
   return deser(row) ?? null;
 };
 
@@ -193,7 +200,7 @@ export const getAllReceipts = async () => {
   ));
 };
 
-/** Single most-recent receipt by date then created_at — used for the Scan screen "Recent" card. */
+/** Single most-recent receipt — used for the Scan screen "Recent" card. */
 export const getLatestReceipt = async () => {
   const database = await getDb();
   const row = await database.getFirstAsync(
@@ -202,14 +209,7 @@ export const getLatestReceipt = async () => {
   return deser(row) ?? null;
 };
 
-/** Fetch a single receipt by primary key. */
-export const getReceiptById = async (id) => {
-  const database = await getDb();
-  const row = await database.getFirstAsync('SELECT * FROM receipts WHERE id=?', [id]);
-  return deser(row) ?? null;
-};
-
-/** Receipts shown in the main list — only confirmed/reviewed. */
+/** Receipts shown in the main list — only ready. */
 export const getReadyReceipts = async () => {
   const database = await getDb();
   return deserAll(await database.getAllAsync(
@@ -248,129 +248,70 @@ export const getMonthlyCount = async () => {
   return row?.count ?? 0;
 };
 
-// --- Sync helpers (Priority 2) ---
+// --- Sync helpers ---
 
-/** Get all receipts that have not yet been pushed to cloud. */
-export const getUnsynced = async () => {
+export const getUnsyncedReceipts = async () => {
   const database = await getDb();
   return deserAll(await database.getAllAsync(
-    'SELECT * FROM receipts WHERE synced=0'
+    "SELECT * FROM receipts WHERE synced = 0 ORDER BY updated_at ASC"
   ));
 };
 
-/**
- * Mark a receipt as synced, recording its Firestore doc ID and version.
- * Called after a successful push or pull update.
- */
-export const markReceiptSynced = async (id, firestoreId, version) => {
+export const markReceiptSynced = async (id, firestoreId) => {
   const database = await getDb();
   await database.runAsync(
-    'UPDATE receipts SET synced=1, firestore_id=?, version=? WHERE id=?',
-    [firestoreId, version, id]
+    'UPDATE receipts SET synced=1, firestore_id=COALESCE(?, firestore_id) WHERE id=?',
+    [firestoreId || null, id]
   );
 };
 
-/** Update the version field of a receipt without touching anything else. */
-export const updateReceiptVersion = async (receiptId, newVersion) => {
-  const database = await getDb();
-  await database.runAsync(
-    'UPDATE receipts SET version=? WHERE id=?',
-    [newVersion, receiptId]
-  );
-};
+// --- Queue helpers ---
 
-/**
- * Insert a receipt that originated in Firestore (pull sync).
- * Sets synced=1 immediately so it is not pushed back up.
- */
-export const insertReceiptFromCloud = async (receipt) => {
+export const insertQueueItem = async (receiptId, photoUri) => {
   const database = await getDb();
   const now = new Date().toISOString();
   const result = await database.runAsync(
-    `INSERT INTO receipts
-       (vendor, date, total, tax, category, status, notes, photo_uri,
-        created_at, updated_at, synced, version, device_id, firestore_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-    [
-      receipt.vendor       || null,
-      receipt.date         || null,
-      parseFloat(receipt.total)  || 0,
-      parseFloat(receipt.tax)    || 0,
-      receipt.category     || 'Other',
-      receipt.status       || 'ready',
-      ser(receipt.notes),
-      receipt.photo_uri    || null,
-      receipt.created_at   || now,
-      receipt.updated_at   || now,
-      receipt.version      || 1,
-      receipt.device_id    || null,
-      receipt.firestore_id || null,
-    ]
+    'INSERT INTO receipt_queue (receipt_id, photo_uri, status, attempts, created_at) VALUES (?, ?, ?, ?, ?)',
+    [receiptId, photoUri, 'pending', 0, now]
   );
   return result.lastInsertRowId;
 };
 
-/**
- * Update a receipt with cloud data without resetting the synced flag.
- * Used during pull sync so the receipt is not immediately queued for re-push.
- */
-export const updateReceiptFromCloud = async (id, fields, firestoreId, version) => {
-  const database = await getDb();
-  const now = new Date().toISOString();
-  await database.runAsync(
-    `UPDATE receipts
-     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?,
-         updated_at=?, synced=1, firestore_id=?, version=?
-     WHERE id=?`,
-    [
-      fields.vendor   || null,
-      fields.date     || null,
-      parseFloat(fields.total)  || 0,
-      parseFloat(fields.tax)    || 0,
-      fields.category || 'Other',
-      fields.status   || 'ready',
-      ser(fields.notes),
-      now,
-      firestoreId,
-      version,
-      id,
-    ]
-  );
-};
-
-// --- Failed sync queue (Priority 2 & 4) ---
-
-export const FAILED_SYNC_RETRY_LIMIT = 5;
-
-export const insertFailedSync = async (receiptId, operation, errorMsg) => {
-  const database = await getDb();
-  const now = new Date().toISOString();
-  await database.runAsync(
-    `INSERT INTO failed_syncs (receipt_id, operation, error_message, attempt_count, last_attempted, created_at)
-     VALUES (?, ?, ?, 1, ?, ?)`,
-    [receiptId, operation, errorMsg || null, now, now]
-  );
-};
-
-/** Get queued failures that have not yet exceeded the retry limit. */
-export const getFailedSyncs = async () => {
+export const getQueueItems = async (status = 'pending') => {
   const database = await getDb();
   return database.getAllAsync(
-    `SELECT fs.*, r.vendor, r.date, r.total
-     FROM failed_syncs fs
-     LEFT JOIN receipts r ON r.id = fs.receipt_id
-     WHERE fs.attempt_count < ${FAILED_SYNC_RETRY_LIMIT}
-     ORDER BY fs.created_at DESC`
+    'SELECT * FROM receipt_queue WHERE status=? ORDER BY created_at ASC',
+    [status]
   );
 };
 
-export const updateFailedSyncAttempt = async (failedSyncId, attemptCount) => {
+export const updateQueueItemStatus = async (id, status, attempts) => {
+  const database = await getDb();
+  await database.runAsync(
+    'UPDATE receipt_queue SET status=?, attempts=? WHERE id=?',
+    [status, attempts, id]
+  );
+};
+
+export const deleteQueueItem = async (id) => {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM receipt_queue WHERE id=?', [id]);
+};
+
+// --- Failed sync log ---
+
+export const insertFailedSync = async (receiptId, error, operation) => {
   const database = await getDb();
   const now = new Date().toISOString();
   await database.runAsync(
-    'UPDATE failed_syncs SET attempt_count=?, last_attempted=? WHERE id=?',
-    [attemptCount, now, failedSyncId]
+    'INSERT INTO failed_syncs (receipt_id, operation, error, attempt_count, failed_at) VALUES (?, ?, ?, 1, ?)',
+    [receiptId, operation || null, error || null, now]
   );
+};
+
+export const getFailedSyncs = async () => {
+  const database = await getDb();
+  return database.getAllAsync('SELECT * FROM failed_syncs ORDER BY failed_at DESC');
 };
 
 export const deleteFailedSync = async (id) => {
@@ -382,74 +323,7 @@ export const incrementFailedSyncAttempt = async (id) => {
   const database = await getDb();
   const now = new Date().toISOString();
   await database.runAsync(
-    `UPDATE failed_syncs SET attempt_count = attempt_count + 1, last_attempt_at = ? WHERE id = ?`,
+    'UPDATE failed_syncs SET attempt_count = attempt_count + 1, failed_at = ? WHERE id=?',
     [now, id]
   );
-};
-
-// --- Queue table operations (Priority 1) ---
-
-export const insertQueueEntry = async (receiptId, photoUri) => {
-  const database = await getDb();
-  const now = new Date().toISOString();
-  const result = await database.runAsync(
-    `INSERT INTO receipt_queue (receipt_id, photo_uri, status, retry_count, created_at)
-     VALUES (?, ?, 'pending', 0, ?)`,
-    [receiptId, photoUri, now]
-  );
-  return result.lastInsertRowId;
-};
-
-export const getQueueEntries = async (status) => {
-  const database = await getDb();
-  if (status) {
-    return database.getAllAsync(
-      'SELECT * FROM receipt_queue WHERE status = ? ORDER BY created_at ASC',
-      [status]
-    );
-  }
-  return database.getAllAsync('SELECT * FROM receipt_queue ORDER BY created_at ASC');
-};
-
-export const getAllQueueEntries = async () => {
-  const database = await getDb();
-  return database.getAllAsync('SELECT * FROM receipt_queue ORDER BY created_at ASC');
-};
-
-export const updateQueueEntry = async (id, updates) => {
-  const database = await getDb();
-  const fields = [];
-  const values = [];
-  for (const [key, val] of Object.entries(updates)) {
-    fields.push(`${key} = ?`);
-    values.push(val);
-  }
-  values.push(id);
-  await database.runAsync(
-    `UPDATE receipt_queue SET ${fields.join(', ')} WHERE id = ?`,
-    values
-  );
-};
-
-export const deleteQueueEntry = async (id) => {
-  const database = await getDb();
-  await database.runAsync('DELETE FROM receipt_queue WHERE id = ?', [id]);
-};
-
-export const incrementQueueRetryCount = async (id) => {
-  const database = await getDb();
-  await database.runAsync(
-    'UPDATE receipt_queue SET retry_count = retry_count + 1 WHERE id = ?',
-    [id]
-  );
-  const row = await database.getFirstAsync(
-    'SELECT retry_count FROM receipt_queue WHERE id = ?',
-    [id]
-  );
-  return row?.retry_count ?? 0;
-};
-
-export const getQueueEntryById = async (id) => {
-  const database = await getDb();
-  return database.getFirstAsync('SELECT * FROM receipt_queue WHERE id = ?', [id]);
 };

@@ -1,33 +1,31 @@
-import { getFirestore, collection, doc, getDocs, getDoc, setDoc, updateDoc } from '@react-native-firebase/firestore';
+import { getFirestore, collection, doc, setDoc, getDocs, getDoc } from '@react-native-firebase/firestore';
 import { insertReceipt, getAllReceipts } from './db';
 import { deriveStatus, normalizeNotes } from '../utils/receiptHelpers';
 
 const db = getFirestore();
 
+/** Push a receipt to Firestore. Uses SQLite id as the doc key so updates/deletes work. */
 export const syncReceiptToFirestore = async (uid, receipt) => {
-  try {
-    const firestoreId = receipt.firestore_id || String(receipt.id);
-    await setDoc(doc(db, 'users', uid, 'receipts', firestoreId), {
-      vendor:    receipt.vendor    || null,
-      date:      receipt.date      || null,
-      total:     receipt.total,
-      tax:       receipt.tax,
-      category:  receipt.category  || 'Other',
-      status:    receipt.status    || 'ready',
-      notes:     normalizeNotes(receipt.notes),
-      photoUri:  receipt.photo_uri || null,
-      createdAt: receipt.created_at || null,
-      updatedAt: receipt.updated_at || receipt.created_at || null,
-      version:   receipt.version   || 1,
-      deviceId:  receipt.device_id || null,
-      isDeleted: false,
-    });
-  } catch (e) {
-    console.log('Firestore sync error:', e.message);
-  }
+  const firestoreId = receipt.firestore_id || String(receipt.id);
+  const docRef = doc(db, 'users', uid, 'receipts', firestoreId);
+  await setDoc(docRef, {
+    vendor:    receipt.vendor    || null,
+    date:      receipt.date      || null,
+    total:     receipt.total,
+    tax:       receipt.tax,
+    category:  receipt.category  || 'Other',
+    status:    receipt.status    || 'ready',
+    notes:     normalizeNotes(receipt.notes),
+    photoUri:  receipt.photo_uri || null,
+    createdAt: receipt.created_at || null,
+    updatedAt: receipt.updated_at || receipt.created_at || null,
+    version:   receipt.version   || 1,
+    deviceId:  receipt.device_id || null,
+    isDeleted: false,
+  });
 };
 
-/** Push an update for an existing receipt to Firestore. */
+/** Update specific fields on an existing Firestore receipt doc. */
 export const updateReceiptInFirestore = async (uid, receipt) => {
   const firestoreId = receipt.firestore_id || String(receipt.id);
   await setDoc(doc(db, 'users', uid, 'receipts', firestoreId), {
@@ -41,36 +39,39 @@ export const updateReceiptInFirestore = async (uid, receipt) => {
     photoUri:  receipt.photo_uri || null,
     createdAt: receipt.created_at || null,
     updatedAt: new Date().toISOString(),
-    version:   receipt.version   || 1,
+    version:   (receipt.version || 1) + 1,
     deviceId:  receipt.device_id || null,
     isDeleted: false,
   });
 };
 
-/** Soft-delete a receipt in Firestore by marking isDeleted=true. */
-export const softDeleteReceiptInFirestore = async (uid, firestoreId) => {
-  await updateDoc(doc(db, 'users', uid, 'receipts', firestoreId), {
+/** Soft-delete: marks isDeleted=true so other devices skip on restore. */
+export const softDeleteReceiptInFirestore = async (uid, receiptId, firestoreId) => {
+  const id = firestoreId || String(receiptId);
+  await setDoc(doc(db, 'users', uid, 'receipts', id), {
     isDeleted: true,
     updatedAt: new Date().toISOString(),
-  });
+  }, { merge: true });
 };
 
-/** Fetch all cloud receipts for a user. */
-export const getCloudReceipts = async (uid) => {
+/** Fetch all non-deleted cloud receipts for a user. */
+export const fetchFirestoreReceipts = async (uid) => {
   try {
     const snapshot = await getDocs(collection(db, 'users', uid, 'receipts'));
-    return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    return snapshot.docs
+      .map(d => ({ firestoreId: d.id, ...d.data() }))
+      .filter(r => !r.isDeleted);
   } catch (e) {
     console.log('Firestore fetch error:', e.message);
     return [];
   }
 };
 
-/** Fetch a single cloud receipt by its Firestore document ID. */
+/** Fetch a single cloud receipt by Firestore doc ID. */
 export const getCloudReceipt = async (uid, firestoreId) => {
   try {
     const snap = await getDoc(doc(db, 'users', uid, 'receipts', firestoreId));
-    if (snap.exists()) return { id: snap.id, ...snap.data() };
+    if (snap.exists()) return { firestoreId: snap.id, ...snap.data() };
     return null;
   } catch (e) {
     console.log('Firestore getCloudReceipt error:', e.message);
@@ -78,21 +79,10 @@ export const getCloudReceipt = async (uid, firestoreId) => {
   }
 };
 
-export const fetchFirestoreReceipts = async (uid) => {
-  try {
-    const snapshot = await getDocs(collection(db, 'users', uid, 'receipts'));
-    return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (e) {
-    console.log('Firestore fetch error:', e.message);
-    return [];
-  }
-};
-
 /**
  * Restore receipts from Firestore into local SQLite.
  * Deduplicates on vendor + date + total.
  * Returns { imported, skipped, failed }.
- * No photo restore — if photo_uri is missing, viewer shows "not available".
  */
 export const restoreFromFirestore = async (uid) => {
   let imported = 0, skipped = 0, failed = 0;
@@ -102,7 +92,6 @@ export const restoreFromFirestore = async (uid) => {
       getAllReceipts(),
     ]);
 
-    // Build a set of fingerprints from local receipts for fast dedup
     const localFingerprints = new Set(
       local.map(r => `${(r.vendor || '').toLowerCase()}|${r.date || ''}|${parseFloat(r.total).toFixed(2)}`)
     );
@@ -120,12 +109,12 @@ export const restoreFromFirestore = async (uid) => {
           category:   r.category   || 'Other',
           status:     r.status     || deriveStatus(r),
           notes:      normalizeNotes(r.notes),
-          photo_uri:  null, // cloud photo restore not supported yet
+          photo_uri:  null,
           created_at: r.createdAt  || new Date().toISOString(),
           updated_at: r.updatedAt  || r.createdAt || new Date().toISOString(),
         };
         await insertReceipt(receipt);
-        localFingerprints.add(fp); // prevent dupe if remote has dupes
+        localFingerprints.add(fp);
         imported++;
       } catch (_) {
         failed++;
