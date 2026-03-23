@@ -55,6 +55,14 @@ export const initDb = async () => {
       completed_at  TEXT,
       result        TEXT
     );
+    CREATE TABLE IF NOT EXISTS failed_syncs (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      receipt_id       INTEGER NOT NULL,
+      error_message    TEXT,
+      attempt_count    INTEGER NOT NULL DEFAULT 1,
+      last_attempt_at  TEXT,
+      created_at       TEXT    NOT NULL
+    );
   `);
 
   // Safe migrations for installs that predate these columns
@@ -221,6 +229,45 @@ export const getMonthlyCount = async () => {
   return row?.count ?? 0;
 };
 
+// --- Failed syncs ---
+
+/** Insert a new failed sync entry. */
+export const insertFailedSync = async (receiptId, errorMessage) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `INSERT INTO failed_syncs (receipt_id, error_message, attempt_count, last_attempt_at, created_at)
+     VALUES (?, ?, 1, ?, ?)`,
+    [receiptId, errorMessage || null, now, now]
+  );
+};
+
+/** Get all pending failed sync entries joined with receipt vendor info. */
+export const getFailedSyncs = async () => {
+  const database = await getDb();
+  return database.getAllAsync(
+    `SELECT fs.*, r.vendor, r.date, r.total
+     FROM failed_syncs fs
+     LEFT JOIN receipts r ON r.id = fs.receipt_id
+     ORDER BY fs.created_at DESC`
+  );
+};
+
+/** Remove a resolved failed sync entry. */
+export const deleteFailedSync = async (id) => {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM failed_syncs WHERE id = ?', [id]);
+};
+
+/** Bump the attempt counter and update last_attempt_at. */
+export const incrementFailedSyncAttempt = async (id) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `UPDATE failed_syncs SET attempt_count = attempt_count + 1, last_attempt_at = ? WHERE id = ?`,
+    [now, id]
+  );
+};
 // --- Sync helpers ---
 
 /** Get a single receipt by its local id. */
