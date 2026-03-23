@@ -30,7 +30,7 @@ export default function ReceiptsScreen({ navigation }) {
     setReceipts(data);
   }, []);
 
-  useFocusEffect(load);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const handleDelete = useCallback((id) => {
     Alert.alert('Delete Receipt', 'Are you sure?', [

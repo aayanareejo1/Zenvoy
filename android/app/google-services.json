@@ -1,34 +1,44 @@
 {
-  "_comment": "PLACEHOLDER — Replace this entire file with the real google-services.json downloaded from your Firebase project console.",
-  "_instructions": [
-    "1. Go to https://console.firebase.google.com/",
-    "2. Select your project (or create one for ReceiptSnap)",
-    "3. Add an Android app with package name: com.aareejo.ReceiptSnap",
-    "4. Download the google-services.json file",
-    "5. Replace this file at: android/app/google-services.json"
-  ],
   "project_info": {
-    "project_number": "REPLACE_ME",
-    "project_id": "REPLACE_ME",
-    "storage_bucket": "REPLACE_ME"
+    "project_number": "182611504696",
+    "project_id": "zenvoy-fe411",
+    "storage_bucket": "zenvoy-fe411.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "REPLACE_ME",
+        "mobilesdk_app_id": "1:182611504696:android:a4dbc04009585045ff80cd",
         "android_client_info": {
-          "package_name": "com.aareejo.ReceiptSnap"
+          "package_name": "com.aareejo.zenvoy"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "182611504696-mg65m703bussror56pg79564emh5vnrc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aareejo.zenvoy",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "182611504696-f7fhfhb3vdmvupqov5n3qj5eo2rffpf6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "REPLACE_ME"
+          "current_key": "AIzaSyDRRvpqUgXKIDwHK1Q9ulRP5Ep4d6vFsD0"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "182611504696-f7fhfhb3vdmvupqov5n3qj5eo2rffpf6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
