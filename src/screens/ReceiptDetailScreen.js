@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, ScrollView, Modal, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Modal, Image } from 'react-native';
 import { updateReceipt, deleteReceipt } from '../services/db';
+import { useToast }  from '../context/ToastContext';
+import Dialog        from '../components/Dialog';
 import { COLORS, RADIUS, BTN_HEIGHT, H_PAD, CATEGORIES, getCategoryInfo } from '../constants/theme';
 
 // ─── Full-screen photo viewer ──────────────────────────────────────────────────
@@ -26,14 +28,16 @@ function PhotoViewer({ uri, onClose }) {
 
 export default function ReceiptDetailScreen({ route, navigation }) {
   const { receipt, onSave } = route.params;
-  const [editing, setEditing]   = useState(false);
-  const [vendor, setVendor]     = useState(receipt.vendor || '');
-  const [date, setDate]         = useState(receipt.date || '');
-  const [total, setTotal]       = useState(String(receipt.total ?? ''));
-  const [tax, setTax]           = useState(String(receipt.tax ?? ''));
-  const [category, setCategory] = useState(receipt.category || 'Other');
-  const [status, setStatus]     = useState(receipt.status || 'ready');
-  const [photoUri, setPhotoUri] = useState(null); // null = viewer closed
+  const { showToast }       = useToast();
+  const [editing, setEditing]     = useState(false);
+  const [vendor, setVendor]       = useState(receipt.vendor || '');
+  const [date, setDate]           = useState(receipt.date || '');
+  const [total, setTotal]         = useState(String(receipt.total ?? ''));
+  const [tax, setTax]             = useState(String(receipt.tax ?? ''));
+  const [category, setCategory]   = useState(receipt.category || 'Other');
+  const [status, setStatus]       = useState(receipt.status || 'ready');
+  const [photoUri, setPhotoUri]   = useState(null);
+  const [deleteDialog, setDeleteDialog] = useState(false);
   const notes = receipt.notes || [];
   const cat = getCategoryInfo(category);
 
@@ -52,12 +56,12 @@ export default function ReceiptDetailScreen({ route, navigation }) {
     await updateReceipt(receipt.id, updated);
     setEditing(false);
     onSave?.();
-    Alert.alert('Saved');
+    showToast({ message: 'Changes saved', type: 'success' });
   };
 
   const handleMarkReady = async () => {
     if (!canMarkReady) {
-      Alert.alert('Missing fields', 'Set vendor, date, and total before marking ready.');
+      showToast({ message: 'Set vendor, date, and total before marking ready.', type: 'warning' });
       return;
     }
     await updateReceipt(receipt.id, {
@@ -74,22 +78,27 @@ export default function ReceiptDetailScreen({ route, navigation }) {
     navigation.goBack();
   };
 
-  const handleDelete = () => {
-    Alert.alert('Delete Receipt', 'Are you sure?', [
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          await deleteReceipt(receipt.id);
-          onSave?.();
-          navigation.goBack();
-        },
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+  const handleDelete = () => setDeleteDialog(true);
+
+  const confirmDelete = async () => {
+    setDeleteDialog(false);
+    await deleteReceipt(receipt.id);
+    onSave?.();
+    navigation.goBack();
   };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <PhotoViewer uri={photoUri} onClose={() => setPhotoUri(null)} />
+      <Dialog
+        visible={deleteDialog}
+        title="Delete Receipt"
+        message="This receipt will be permanently removed."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteDialog(false)}
+      />
 
       {status === 'needs_review' && (
         <View style={styles.reviewBanner}>
