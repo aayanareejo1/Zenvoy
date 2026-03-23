@@ -46,6 +46,23 @@ export const initDb = async () => {
     UPDATE receipts SET notes      = '[]'        WHERE notes      IS NULL;
     UPDATE receipts SET updated_at = created_at  WHERE updated_at IS NULL;
   `);
+
+  await createIndexes();
+};
+
+export const createIndexes = async () => {
+  const database = await getDb();
+  try {
+    await database.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_receipts_status     ON receipts(status);
+      CREATE INDEX IF NOT EXISTS idx_receipts_date       ON receipts(date);
+      CREATE INDEX IF NOT EXISTS idx_receipts_synced     ON receipts(synced);
+      CREATE INDEX IF NOT EXISTS idx_receipts_created_at ON receipts(created_at);
+    `);
+    console.log('Database indexes created successfully');
+  } catch (error) {
+    console.error('Error creating indexes:', error);
+  }
 };
 
 // --- Serialisation helpers (module-private) ---

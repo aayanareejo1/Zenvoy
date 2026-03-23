@@ -161,6 +161,11 @@ export default function ReceiptsScreen({ navigation }) {
         }
         contentContainerStyle={{ paddingBottom: 28 }}
         stickySectionHeadersEnabled={false}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        updateCellsBatchingPeriod={50}
+        initialNumToRender={15}
+        windowSize={5}
       />
     </View>
   );

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Animated, ActivityIndicator, ScrollView, StyleSheet,
   Text, TouchableOpacity, View,
@@ -250,7 +250,7 @@ export default function ScanScreen({ navigation }) {
 
   // ── Save ─────────────────────────────────────────────────────────────────
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const now = new Date().toISOString();
     const receipt = {
@@ -283,7 +283,7 @@ export default function ScanScreen({ navigation }) {
         action: { label: 'View', onPress: () => navigation.navigate('Receipts') },
       });
     }
-  };
+  }, [vendor, date, total, tax, category, notes, result, isPro, user, navigation, showToast]);
 
   // ── Shared sheets ─────────────────────────────────────────────────────────
 
