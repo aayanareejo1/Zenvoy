@@ -43,6 +43,18 @@ export const initDb = async () => {
       last_attempted TEXT,
       created_at    TEXT    NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS receipt_queue (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      receipt_id    INTEGER NOT NULL,
+      photo_uri     TEXT    NOT NULL,
+      status        TEXT    NOT NULL DEFAULT 'pending',
+      error_message TEXT,
+      retry_count   INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT    NOT NULL,
+      started_at    TEXT,
+      completed_at  TEXT,
+      result        TEXT
+    );
   `);
 
   // Safe migrations for installs that predate these columns
@@ -273,6 +285,15 @@ export const insertReceiptFromCloud = async (receipt) => {
       receipt.device_id    || null,
       receipt.firestore_id || null,
     ]
+// --- Queue table operations ---
+
+export const insertQueueEntry = async (receiptId, photoUri) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  const result = await database.runAsync(
+    `INSERT INTO receipt_queue (receipt_id, photo_uri, status, retry_count, created_at)
+     VALUES (?, ?, 'pending', 0, ?)`,
+    [receiptId, photoUri, now]
   );
   return result.lastInsertRowId;
 };
@@ -341,3 +362,58 @@ export const deleteFailedSync = async (id) => {
   const database = await getDb();
   await database.runAsync('DELETE FROM failed_syncs WHERE id=?', [id]);
 };
+export const getQueueEntries = async (status) => {
+  const database = await getDb();
+  if (status) {
+    return database.getAllAsync(
+      'SELECT * FROM receipt_queue WHERE status = ? ORDER BY created_at ASC',
+      [status]
+    );
+  }
+  return database.getAllAsync('SELECT * FROM receipt_queue ORDER BY created_at ASC');
+};
+
+export const getAllQueueEntries = async () => {
+  const database = await getDb();
+  return database.getAllAsync('SELECT * FROM receipt_queue ORDER BY created_at ASC');
+};
+
+export const updateQueueEntry = async (id, updates) => {
+  const database = await getDb();
+  const fields = [];
+  const values = [];
+  for (const [key, val] of Object.entries(updates)) {
+    fields.push(`${key} = ?`);
+    values.push(val);
+  }
+  values.push(id);
+  await database.runAsync(
+    `UPDATE receipt_queue SET ${fields.join(', ')} WHERE id = ?`,
+    values
+  );
+};
+
+export const deleteQueueEntry = async (id) => {
+  const database = await getDb();
+  await database.runAsync('DELETE FROM receipt_queue WHERE id = ?', [id]);
+};
+
+export const incrementQueueRetryCount = async (id) => {
+  const database = await getDb();
+  const result = await database.runAsync(
+    'UPDATE receipt_queue SET retry_count = retry_count + 1 WHERE id = ?',
+    [id]
+  );
+  // Return new value by reading back
+  const row = await database.getFirstAsync(
+    'SELECT retry_count FROM receipt_queue WHERE id = ?',
+    [id]
+  );
+  return row?.retry_count ?? 0;
+};
+
+export const getQueueEntryById = async (id) => {
+  const database = await getDb();
+  return database.getFirstAsync('SELECT * FROM receipt_queue WHERE id = ?', [id]);
+};
+
