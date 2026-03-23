@@ -87,7 +87,7 @@ export default function ScanScreen({ navigation }) {
     if (!(await gateScan())) return;
 
     // allowsEditing=true gives the built-in crop UI
-    const opts = { mediaTypes: ['images'], quality: 1, allowsEditing: true, aspect: [4, 5] };
+    const opts = { mediaTypes: ['images'], quality: 1, allowsEditing: true };
     let picked;
     try {
       if (source === 'camera') {
@@ -158,7 +158,7 @@ export default function ScanScreen({ navigation }) {
         if (status !== 'granted') { Alert.alert('Permission denied'); return; }
         // Camera doesn't support multi-select; loop until user says done
         while (true) {
-          const picked = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true, aspect: [4, 5] });
+          const picked = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true });
           if (picked.canceled) break;
           assets.push(picked.assets[0]);
           const again = await new Promise(r =>

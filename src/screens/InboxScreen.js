@@ -12,7 +12,7 @@ export default function InboxScreen({ navigation }) {
     setReceipts(data);
   }, []);
 
-  useFocusEffect(load);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const renderItem = useCallback(({ item }) => {
     const cat = getCategoryInfo(item.category);
