@@ -13,6 +13,7 @@ import ProcessingScreen from './src/screens/ProcessingScreen';
 import ReceiptsScreen from './src/screens/ReceiptsScreen';
 import ReceiptDetailScreen from './src/screens/ReceiptDetailScreen';
 import EditReceiptScreen from './src/screens/EditReceiptScreen';
+import ExportScreen from './src/screens/ExportScreen';
 import InboxScreen from './src/screens/InboxScreen';
 import ReportsScreen from './src/screens/ReportsScreen';
 import AccountScreen from './src/screens/AccountScreen';
@@ -49,6 +50,7 @@ function ReceiptsStackNav() {
       <ReceiptsStack.Screen name="ReceiptsList" component={ReceiptsScreen} options={{ title: 'Receipts' }} />
       <ReceiptsStack.Screen name="ReceiptDetail" component={ReceiptDetailScreen} options={{ title: 'Detail' }} />
       <ReceiptsStack.Screen name="EditReceipt" component={EditReceiptScreen} options={{ title: 'Edit Receipt', headerBackTitle: 'Back' }} />
+      <ReceiptsStack.Screen name="Export" component={ExportScreen} options={{ title: 'Export Receipts' }} />
     </ReceiptsStack.Navigator>
   );
 }
