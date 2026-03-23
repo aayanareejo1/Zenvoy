@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Modal, Image } from 'react-native';
 import { updateReceipt, deleteReceipt } from '../services/db';
+import * as Haptics from 'expo-haptics';
 import { useToast }  from '../context/ToastContext';
 import Dialog        from '../components/Dialog';
 import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, CATEGORIES, getCategoryInfo } from '../constants/theme';
@@ -44,6 +45,7 @@ export default function ReceiptDetailScreen({ route, navigation }) {
   const canMarkReady = vendor.trim() && date.trim() && parseFloat(total) > 0;
 
   const handleSave = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const updated = {
       vendor:   vendor.trim() || null,
       date:     date.trim()   || null,
@@ -60,6 +62,7 @@ export default function ReceiptDetailScreen({ route, navigation }) {
   };
 
   const handleMarkReady = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (!canMarkReady) {
       showToast({ message: 'Set vendor, date, and total before marking ready.', type: 'warning' });
       return;
@@ -80,6 +83,7 @@ export default function ReceiptDetailScreen({ route, navigation }) {
 
   const confirmDelete = async () => {
     setDeleteDialog(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     await deleteReceipt(receipt.id);
     onSave?.();
     navigation.goBack();

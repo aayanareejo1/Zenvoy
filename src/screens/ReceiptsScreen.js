@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, SectionList, TouchableOpacity, TextInput, ScrollView, StyleSheet } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getReadyReceipts, deleteReceipt } from '../services/db';
+import * as Haptics from 'expo-haptics';
 import Dialog from '../components/Dialog';
 import { COLORS, ELEVATION, RADIUS, H_PAD, SPACE, CATEGORIES, getCategoryInfo } from '../constants/theme';
 
@@ -38,6 +39,7 @@ export default function ReceiptsScreen({ navigation }) {
 
   const confirmDelete = useCallback(async () => {
     if (!deleteId) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     await deleteReceipt(deleteId);
     setDeleteId(null);
     load();
