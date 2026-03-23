@@ -4,8 +4,8 @@ import {
   ScrollView, ActivityIndicator,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { useToast }  from '../context/ToastContext';
-import Dialog        from '../components/Dialog';
+import { useToast } from '../context/ToastContext';
+import Dialog from '../components/Dialog';
 import { getReceiptById, updateReceipt, softDeleteReceipt } from '../services/db';
 import {
   COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE,
@@ -16,43 +16,45 @@ export default function EditReceiptScreen({ route, navigation }) {
   const { receiptId } = route.params;
   const { showToast } = useToast();
 
-  const [loading, setLoading]       = useState(true);
-  const [vendor, setVendor]         = useState('');
-  const [date, setDate]             = useState('');
-  const [total, setTotal]           = useState('');
-  const [tax, setTax]               = useState('');
-  const [category, setCategory]     = useState('Other');
-  const [notesText, setNotesText]   = useState('');
-  const [status, setStatus]         = useState('ready');
+  const [loading, setLoading] = useState(true);
+  const [vendor, setVendor] = useState('');
+  const [date, setDate] = useState('');
+  const [total, setTotal] = useState('');
+  const [tax, setTax] = useState('');
+  const [category, setCategory] = useState('Other');
+  const [notesText, setNotesText] = useState('');
+  const [status, setStatus] = useState('ready');
   const [deleteDialog, setDeleteDialog] = useState(false);
-  const [errors, setErrors]         = useState({});
+  const [errors, setErrors] = useState({});
 
   // Load receipt on mount
   useEffect(() => {
     let cancelled = false;
     getReceiptById(receiptId).then(r => {
       if (cancelled || !r) return;
-      setVendor(r.vendor   || '');
-      setDate(r.date       || '');
-      setTotal(r.total     > 0 ? String(r.total)   : '');
-      setTax(r.tax         > 0 ? String(r.tax)     : '');
+      setVendor(r.vendor || '');
+      setDate(r.date || '');
+      setTotal(r.total > 0 ? String(r.total) : '');
+      setTax(r.tax > 0 ? String(r.tax) : '');
       setCategory(r.category || 'Other');
       setNotesText(Array.isArray(r.notes) ? r.notes.join('\n') : '');
-      setStatus(r.status   || 'ready');
+      setStatus(r.status || 'ready');
       setLoading(false);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [receiptId]);
 
   const validate = useCallback(() => {
     const errs = {};
     if (!vendor.trim() || vendor.trim().length < 2) errs.vendor = 'Vendor must be at least 2 characters';
-    if (!date.trim())                                errs.date   = 'Date is required';
+    if (!date.trim()) errs.date = 'Date is required';
     const t = parseFloat(total);
-    if (!total.trim() || isNaN(t) || t <= 0)        errs.total  = 'Total must be a number greater than 0';
+    if (!total.trim() || isNaN(t) || t <= 0) errs.total = 'Total must be a number greater than 0';
     const tx = parseFloat(tax);
-    if (tax.trim() && (isNaN(tx) || tx < 0))        errs.tax    = 'Tax must be 0 or greater';
-    if (!category)                                   errs.category = 'Category is required';
+    if (tax.trim() && (isNaN(tx) || tx < 0)) errs.tax = 'Tax must be 0 or greater';
+    if (!category) errs.category = 'Category is required';
     return errs;
   }, [vendor, date, total, tax, category]);
 
@@ -65,12 +67,15 @@ export default function EditReceiptScreen({ route, navigation }) {
     }
     setErrors({});
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const notes = notesText.split('\n').map(l => l.trim()).filter(Boolean);
+    const notes = notesText
+      .split('\n')
+      .map(l => l.trim())
+      .filter(Boolean);
     await updateReceipt(receiptId, {
-      vendor:   vendor.trim(),
-      date:     date.trim(),
-      total:    parseFloat(total),
-      tax:      parseFloat(tax) || 0,
+      vendor: vendor.trim(),
+      date: date.trim(),
+      total: parseFloat(total),
+      tax: parseFloat(tax) || 0,
       category,
       status,
       notes,
@@ -119,11 +124,16 @@ export default function EditReceiptScreen({ route, navigation }) {
 
       {/* Vendor */}
       <View style={styles.field}>
-        <Text style={styles.label}>Vendor <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.label}>
+          Vendor <Text style={styles.required}>*</Text>
+        </Text>
         <TextInput
           style={[styles.input, errors.vendor && styles.inputError]}
           value={vendor}
-          onChangeText={t => { setVendor(t); setErrors(e => ({ ...e, vendor: undefined })); }}
+          onChangeText={t => {
+            setVendor(t);
+            setErrors(e => ({ ...e, vendor: undefined }));
+          }}
           placeholder="e.g. Starbucks"
           placeholderTextColor={COLORS.textTertiary}
           selectionColor={COLORS.accent}
@@ -134,11 +144,16 @@ export default function EditReceiptScreen({ route, navigation }) {
 
       {/* Date */}
       <View style={styles.field}>
-        <Text style={styles.label}>Date <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.label}>
+          Date <Text style={styles.required}>*</Text>
+        </Text>
         <TextInput
           style={[styles.input, errors.date && styles.inputError]}
           value={date}
-          onChangeText={t => { setDate(t); setErrors(e => ({ ...e, date: undefined })); }}
+          onChangeText={t => {
+            setDate(t);
+            setErrors(e => ({ ...e, date: undefined }));
+          }}
           placeholder="YYYY-MM-DD"
           placeholderTextColor={COLORS.textTertiary}
           selectionColor={COLORS.accent}
@@ -148,11 +163,16 @@ export default function EditReceiptScreen({ route, navigation }) {
 
       {/* Total */}
       <View style={styles.field}>
-        <Text style={styles.label}>Total <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.label}>
+          Total <Text style={styles.required}>*</Text>
+        </Text>
         <TextInput
           style={[styles.input, errors.total && styles.inputError]}
           value={total}
-          onChangeText={t => { setTotal(t); setErrors(e => ({ ...e, total: undefined })); }}
+          onChangeText={t => {
+            setTotal(t);
+            setErrors(e => ({ ...e, total: undefined }));
+          }}
           placeholder="0.00"
           placeholderTextColor={COLORS.textTertiary}
           keyboardType="decimal-pad"
@@ -167,7 +187,10 @@ export default function EditReceiptScreen({ route, navigation }) {
         <TextInput
           style={[styles.input, errors.tax && styles.inputError]}
           value={tax}
-          onChangeText={t => { setTax(t); setErrors(e => ({ ...e, tax: undefined })); }}
+          onChangeText={t => {
+            setTax(t);
+            setErrors(e => ({ ...e, tax: undefined }));
+          }}
           placeholder="0.00"
           placeholderTextColor={COLORS.textTertiary}
           keyboardType="decimal-pad"
@@ -190,11 +213,16 @@ export default function EditReceiptScreen({ route, navigation }) {
                 { borderColor: c.color + '80' },
                 category === c.key && { backgroundColor: c.color, borderColor: c.color },
               ]}
-              onPress={() => { setCategory(c.key); setErrors(e => ({ ...e, category: undefined })); }}
+              onPress={() => {
+                setCategory(c.key);
+                setErrors(e => ({ ...e, category: undefined }));
+              }}
               activeOpacity={0.75}
             >
               <Text style={styles.catChipEmoji}>{c.emoji}</Text>
-              <Text style={[styles.catChipText, category === c.key && styles.catChipTextActive]}>{c.label}</Text>
+              <Text style={[styles.catChipText, category === c.key && styles.catChipTextActive]}>
+                {c.label}
+              </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -233,105 +261,105 @@ export default function EditReceiptScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   loadingContainer: {
-    flex:            1,
+    flex: 1,
     backgroundColor: COLORS.bg,
-    justifyContent:  'center',
-    alignItems:      'center',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   container: { flex: 1, backgroundColor: COLORS.bg },
-  content:   { padding: H_PAD, paddingBottom: 48 },
+  content: { padding: H_PAD, paddingBottom: 48 },
 
   catBadge: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    alignSelf:         'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
     paddingHorizontal: SPACE.md,
-    paddingVertical:   8,
-    borderRadius:      RADIUS.pill,
-    borderWidth:       1.5,
-    gap:               6,
-    marginBottom:      SPACE.lg,
+    paddingVertical: 8,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1.5,
+    gap: 6,
+    marginBottom: SPACE.lg,
   },
   catEmoji: { fontSize: 17 },
   catLabel: { fontSize: 14, fontWeight: '700' },
 
   heading: {
-    fontSize:     26,
-    fontWeight:   '700',
-    color:        COLORS.textPrimary,
+    fontSize: 26,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
     letterSpacing: -0.5,
     marginBottom: SPACE.xxl,
   },
 
-  field:    { marginBottom: SPACE.xl },
+  field: { marginBottom: SPACE.xl },
   label: {
-    fontSize:      11,
-    color:         COLORS.textSecondary,
-    fontWeight:    '600',
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-    marginBottom:  SPACE.sm,
+    marginBottom: SPACE.sm,
   },
   required: { color: COLORS.danger },
   input: {
-    backgroundColor:   COLORS.card,
-    borderRadius:      RADIUS.input,
-    borderWidth:       1,
-    borderColor:       COLORS.border,
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.input,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     paddingHorizontal: SPACE.md,
-    height:            48,
-    color:             COLORS.textPrimary,
-    fontSize:          16,
+    height: 48,
+    color: COLORS.textPrimary,
+    fontSize: 16,
   },
   inputError: {
     borderColor: COLORS.danger,
   },
   notesInput: {
-    height:         100,
-    paddingTop:     SPACE.md,
-    paddingBottom:  SPACE.md,
+    height: 100,
+    paddingTop: SPACE.md,
+    paddingBottom: SPACE.md,
   },
   errorText: {
-    fontSize:   12,
-    color:      COLORS.danger,
-    marginTop:  SPACE.xs,
+    fontSize: 12,
+    color: COLORS.danger,
+    marginTop: SPACE.xs,
     fontWeight: '500',
   },
 
-  catChips:         { gap: SPACE.sm, flexDirection: 'row', paddingBottom: SPACE.xs },
+  catChips: { gap: SPACE.sm, flexDirection: 'row', paddingBottom: SPACE.xs },
   catChip: {
-    flexDirection:     'row',
-    alignItems:        'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: SPACE.md,
-    paddingVertical:   8,
-    borderRadius:      RADIUS.chip,
-    borderWidth:       1.5,
-    gap:               6,
+    paddingVertical: 8,
+    borderRadius: RADIUS.chip,
+    borderWidth: 1.5,
+    gap: 6,
   },
-  catChipEmoji:      { fontSize: 14 },
-  catChipText:       { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
+  catChipEmoji: { fontSize: 14 },
+  catChipText: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
   catChipTextActive: { color: '#fff' },
 
   glowWrap: {
-    width:        '100%',
+    width: '100%',
     borderRadius: RADIUS.button,
     ...ELEVATION.glow,
   },
   saveBtn: {
     backgroundColor: COLORS.accent,
-    height:          BTN_HEIGHT,
-    borderRadius:    RADIUS.button,
-    justifyContent:  'center',
-    alignItems:      'center',
+    height: BTN_HEIGHT,
+    borderRadius: RADIUS.button,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
 
   deleteBtn: {
-    height:         BTN_HEIGHT,
+    height: BTN_HEIGHT,
     justifyContent: 'center',
-    alignItems:     'center',
-    marginTop:      SPACE.sm,
+    alignItems: 'center',
+    marginTop: SPACE.sm,
   },
   deleteTxt: { color: COLORS.danger, fontSize: 15, fontWeight: '500' },
 });

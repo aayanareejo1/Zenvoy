@@ -177,6 +177,15 @@ export const softDeleteReceipt = async (id) => {
 
 // --- Reads ---
 
+export const getReceiptById = async (id) => {
+  const database = await getDb();
+  const row = await database.getFirstAsync(
+    'SELECT * FROM receipts WHERE id=?',
+    [id]
+  );
+  return deser(row) ?? null;
+};
+
 export const getAllReceipts = async () => {
   const database = await getDb();
   return deserAll(await database.getAllAsync(
