@@ -4,6 +4,7 @@ import {
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
 import { parseReceiptWithVision }    from '../services/claude';
 import { preprocessImage, isTooLarge } from '../services/imageProcessor';
 import { insertReceipt, getMonthlyCount, deriveStatus } from '../services/db';
@@ -27,10 +28,14 @@ function PressableScale({ children, style, onPress, activeScale = 0.97 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const onIn  = () => Animated.spring(scale, { toValue: activeScale, damping: 20, stiffness: 400, useNativeDriver: true }).start();
   const onOut = () => Animated.spring(scale, { toValue: 1,           damping: 20, stiffness: 300, useNativeDriver: true }).start();
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onPress?.();
+  };
   return (
     <Animated.View style={[style, { transform: [{ scale }] }]}>
       <TouchableOpacity
-        onPress={onPress}
+        onPress={handlePress}
         onPressIn={onIn}
         onPressOut={onOut}
         activeOpacity={1}
@@ -206,6 +211,7 @@ export default function ScanScreen({ navigation }) {
   // ── Save ───────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const now = new Date().toISOString();
     const receipt = {
       vendor:    vendor.trim() || null,
@@ -224,12 +230,14 @@ export default function ScanScreen({ navigation }) {
     setResult(null);
 
     if (receipt.status === 'needs_review') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       showToast({
         message: 'Saved to Inbox — some fields were missing.',
         type: 'warning',
         action: { label: 'View', onPress: () => navigation.navigate('Inbox') },
       });
     } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       showToast({
         message: 'Receipt saved!',
         type: 'success',
