@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Animated, ActivityIndicator, ScrollView, StyleSheet,
   Text, TouchableOpacity, View,
@@ -7,7 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { parseReceiptWithVision }      from '../services/claude';
 import { preprocessImage, isTooLarge } from '../services/imageProcessor';
-import { insertReceipt, getMonthlyCount, deriveStatus } from '../services/db';
+import { insertReceipt, getAllReceipts, getMonthlyCount, deriveStatus } from '../services/db';
 import { syncReceiptToFirestore }      from '../services/firestore';
 import { useApp }                      from '../context/AppContext';
 import { useToast }                    from '../context/ToastContext';
@@ -28,7 +28,7 @@ const checkScanLimit = async (isPro) => {
 
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 
-// Pressable with spring scale + haptic on tap
+// Pressable with spring scale + optional haptic on tap
 function PressableScale({ children, style, onPress, activeScale = 0.97, haptic = 'medium' }) {
   const scale = useRef(new Animated.Value(1)).current;
   const onIn  = () => Animated.spring(scale, { toValue: activeScale, damping: 20, stiffness: 400, useNativeDriver: true }).start();
@@ -68,7 +68,7 @@ export default function ScanScreen({ navigation }) {
   // ── State ────────────────────────────────────────────────────────────────
 
   const [loading, setLoading]   = useState(false);
-  const [error,   setError]     = useState(null);   // inline error state
+  const [error,   setError]     = useState(null);
   const [result,  setResult]    = useState(null);
   const [vendor,  setVendor]    = useState('');
   const [date,    setDate]      = useState('');
@@ -76,6 +76,7 @@ export default function ScanScreen({ navigation }) {
   const [tax,     setTax]       = useState('');
   const [category, setCategory] = useState('Other');
   const [notes,   setNotes]     = useState([]);
+  const [lastReceipt, setLastReceipt] = useState(null);
 
   // Sheets
   const [tooLargeSheet, setTooLargeSheet] = useState(false);
@@ -83,6 +84,11 @@ export default function ScanScreen({ navigation }) {
   const [multiSheet,    setMultiSheet]    = useState(false);
   const [againSheet,    setAgainSheet]    = useState(false);
   const againResolveRef = useRef(null);
+
+  // Load most recent receipt for the bottom card (refreshes after save/discard)
+  useEffect(() => {
+    getAllReceipts().then(rows => setLastReceipt(rows[0] ?? null));
+  }, [result]);
 
   // ── Paywall ──────────────────────────────────────────────────────────────
 
@@ -248,7 +254,7 @@ export default function ScanScreen({ navigation }) {
     }
   };
 
-  // ── Shared sheets (rendered in all states) ────────────────────────────────
+  // ── Shared sheets ─────────────────────────────────────────────────────────
 
   const Sheets = (
     <>
@@ -370,8 +376,20 @@ export default function ScanScreen({ navigation }) {
             {CATEGORIES.map(cat => (
               <TouchableOpacity
                 key={cat.key}
-                style={[s.chip, { borderColor: cat.color + '80' }, category === cat.key && { backgroundColor: cat.color, borderColor: cat.color }]}
-                onPress={() => setCategory(cat.key)}
+                style={[
+                  s.chip,
+                  { borderColor: cat.color + '70' },
+                  category === cat.key && {
+                    backgroundColor: cat.color,
+                    borderColor:     cat.color,
+                    elevation:       4,
+                    shadowColor:     cat.color,
+                    shadowOpacity:   0.4,
+                    shadowOffset:    { width: 0, height: 2 },
+                    shadowRadius:    8,
+                  },
+                ]}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setCategory(cat.key); }}
                 activeOpacity={0.75}
               >
                 <Text style={s.chipEmoji}>{cat.emoji}</Text>
@@ -393,11 +411,11 @@ export default function ScanScreen({ navigation }) {
           )}
 
           {/* Actions */}
-          <View style={[s.saveGlow, { marginTop: SPACE.xl }]}>
-            <TouchableOpacity style={s.saveBtn} onPress={handleSave} activeOpacity={0.9}>
+          <PressableScale style={[s.saveGlow, { marginTop: SPACE.xl }]} onPress={handleSave} haptic={null}>
+            <View style={s.saveBtn}>
               <Text style={s.saveBtnTxt}>Save Receipt</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+          </PressableScale>
           <TouchableOpacity style={s.discardBtn} onPress={() => setResult(null)} activeOpacity={0.7}>
             <Text style={s.discardTxt}>Discard</Text>
           </TouchableOpacity>
@@ -415,10 +433,10 @@ export default function ScanScreen({ navigation }) {
       {/* Header */}
       <ScreenHeader title="Zenvoy" subtitle="Receipts, organized." />
 
-      {/* Hero card */}
+      {/* Hero area — top-aligned with subtle background glow */}
       <View style={s.heroArea}>
+        <View style={s.heroAreaGlow} pointerEvents="none" />
         <View style={s.heroCard}>
-          {/* Receipt icon */}
           <View style={s.heroIconWrap}>
             <ReceiptIconGraphic />
           </View>
@@ -431,6 +449,7 @@ export default function ScanScreen({ navigation }) {
 
       {/* CTA + secondary actions */}
       <View style={s.bottomArea}>
+
         {/* Primary: Scan (camera) */}
         <PressableScale style={s.primaryGlow} onPress={() => pickSingle('camera')}>
           <View style={s.primaryBtn}>
@@ -438,23 +457,43 @@ export default function ScanScreen({ navigation }) {
           </View>
         </PressableScale>
 
-        {/* Secondary: Import from Photos */}
-        <TouchableOpacity style={s.secondaryBtn} onPress={() => pickSingle('gallery')} activeOpacity={0.75}>
-          <Text style={s.secondaryBtnTxt}>Import from Photos</Text>
+        {/* Secondary: Import from Photos — link-row style */}
+        <TouchableOpacity style={s.importRow} onPress={() => pickSingle('gallery')} activeOpacity={0.7}>
+          <View style={s.importIconDot}>
+            <Text style={s.importIconChar}>↑</Text>
+          </View>
+          <Text style={s.importRowLabel}>Import from Photos</Text>
         </TouchableOpacity>
 
-        {/* Tertiary text row */}
+        {/* Tertiary row */}
         <View style={s.tertiaryRow}>
           <TouchableOpacity onPress={handleMultiScan} activeOpacity={0.7} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={s.tertiaryLink}>⚡ Multi Scan</Text>
+            <Text style={s.tertiaryLink}>Batch scan  ›</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Tip card */}
-        <View style={s.tipCard}>
-          <Text style={s.tipIcon}>💡</Text>
-          <Text style={s.tipText}>Crop tight to the receipt for best results</Text>
-        </View>
+        {/* Recent receipt card, or tip card if no receipts yet */}
+        {lastReceipt ? (
+          <TouchableOpacity style={s.lastScanCard} onPress={() => navigation.navigate('Receipts')} activeOpacity={0.8}>
+            <View style={s.lastScanLeft}>
+              <Text style={s.lastScanLabel}>Recent</Text>
+              <Text style={s.lastScanVendor} numberOfLines={1}>{lastReceipt.vendor || 'Unknown vendor'}</Text>
+            </View>
+            <View style={s.lastScanRight}>
+              {parseFloat(lastReceipt.total) > 0 && (
+                <Text style={s.lastScanTotal}>${parseFloat(lastReceipt.total).toFixed(2)}</Text>
+              )}
+              <Text style={s.lastScanChevron}>›</Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <View style={s.tipCard}>
+            <View style={s.tipBubble}>
+              <Text style={s.tipBubbleTxt}>i</Text>
+            </View>
+            <Text style={s.tipText}>Crop tight to the receipt for best results</Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -471,17 +510,15 @@ function ScreenHeader({ title, subtitle }) {
   );
 }
 
-// Geometric receipt icon (no emoji, no deps)
+// Geometric receipt icon — no emoji, no deps
 function ReceiptIconGraphic() {
   return (
     <View style={s.receiptOuter}>
       <View style={s.receiptInner}>
-        {/* Text lines */}
         <View style={[s.rLine, { width: '82%' }]} />
         <View style={[s.rLine, { width: '60%' }]} />
         <View style={[s.rLine, { width: '72%' }]} />
         <View style={s.rDivider} />
-        {/* Amount lines (accent) */}
         <View style={[s.rLine, { width: '48%', backgroundColor: COLORS.accent, alignSelf: 'flex-end' }]} />
         <View style={[s.rLine, { width: '32%', backgroundColor: COLORS.accent + '60', alignSelf: 'flex-end' }]} />
       </View>
@@ -517,10 +554,24 @@ const s = StyleSheet.create({
     fontWeight: '400',
   },
 
+  // Hero area — top-aligned, not centered
   heroArea: {
     flex:              1,
     paddingHorizontal: H_PAD,
-    justifyContent:    'center',
+    paddingTop:        SPACE.xxl,
+    overflow:          'hidden',
+  },
+
+  // Extremely faint accent arch behind the card
+  heroAreaGlow: {
+    position:              'absolute',
+    top:                   0,
+    left:                  0,
+    right:                 0,
+    height:                180,
+    backgroundColor:       COLORS.accentMuted,  // rgba(0,196,160,0.09)
+    borderBottomLeftRadius:  140,
+    borderBottomRightRadius: 140,
   },
 
   bottomArea: {
@@ -530,12 +581,12 @@ const s = StyleSheet.create({
     gap:               SPACE.sm,
   },
 
-  // ── Hero card (idle)
+  // ── Hero card
   heroCard: {
     backgroundColor: COLORS.card,
     borderRadius:    RADIUS.xl,
     borderWidth:     StyleSheet.hairlineWidth,
-    borderColor:     COLORS.border,
+    borderColor:     COLORS.accent + '18',     // subtle accent tint
     padding:         SPACE.xxxl,
     alignItems:      'center',
     gap:             SPACE.sm,
@@ -559,7 +610,7 @@ const s = StyleSheet.create({
     overflow:        'hidden',
   },
   receiptInner: {
-    flex: 1,
+    flex:           1,
     justifyContent: 'space-evenly',
   },
   rLine: {
@@ -587,7 +638,7 @@ const s = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ── Primary CTA
+  // ── Primary CTA — glow + border highlight
   primaryGlow: {
     width:        '100%',
     borderRadius: RADIUS.button,
@@ -599,6 +650,8 @@ const s = StyleSheet.create({
     borderRadius:    RADIUS.button,
     justifyContent:  'center',
     alignItems:      'center',
+    borderWidth:     1,
+    borderColor:     COLORS.accent + '55',   // soft highlight rim
   },
   primaryBtnTxt: {
     fontSize:      17,
@@ -607,34 +660,94 @@ const s = StyleSheet.create({
     letterSpacing: -0.2,
   },
 
-  // ── Secondary: Import
-  secondaryBtn: {
-    height:          BTN_HEIGHT,
+  // ── Secondary: Import from Photos — link-row style (clear hierarchy below primary)
+  importRow: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    height:          46,
+    backgroundColor: COLORS.cardAlt,
     borderRadius:    RADIUS.button,
+    borderWidth:     1,
+    borderColor:     COLORS.border,
+    paddingHorizontal: SPACE.lg,
+    gap:             SPACE.sm,
+  },
+  importIconDot: {
+    width:           26,
+    height:          26,
+    borderRadius:    13,
+    backgroundColor: COLORS.border,
     justifyContent:  'center',
     alignItems:      'center',
-    borderWidth:     1,
-    borderColor:     COLORS.borderStrong,
-    backgroundColor: COLORS.cardAlt,
   },
-  secondaryBtnTxt: {
-    fontSize:   16,
+  importIconChar: {
+    fontSize:   13,
     fontWeight: '600',
-    color:      COLORS.textPrimary,
+    color:      COLORS.textSecondary,
+    lineHeight: 16,
+  },
+  importRowLabel: {
+    flex:       1,
+    fontSize:   14,
+    fontWeight: '600',
+    color:      COLORS.textSecondary,
   },
 
-  // ── Tertiary row
+  // ── Tertiary: Batch scan
   tertiaryRow: {
-    alignItems:  'center',
+    alignItems:      'center',
     paddingVertical: SPACE.xs,
   },
   tertiaryLink: {
-    fontSize:   14,
-    color:      COLORS.textSecondary,
+    fontSize:   13,
+    color:      COLORS.textTertiary,
     fontWeight: '600',
+    letterSpacing: 0.1,
   },
 
-  // ── Tip card
+  // ── Recent receipt card
+  lastScanCard: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    justifyContent:  'space-between',
+    backgroundColor: COLORS.cardAlt,
+    borderRadius:    RADIUS.md,
+    borderWidth:     StyleSheet.hairlineWidth,
+    borderColor:     COLORS.border,
+    paddingVertical:   SPACE.md,
+    paddingHorizontal: SPACE.md,
+    marginTop:       SPACE.xs,
+  },
+  lastScanLeft:   { flex: 1, gap: 3, marginRight: SPACE.md },
+  lastScanLabel: {
+    fontSize:      10,
+    fontWeight:    '600',
+    color:         COLORS.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  lastScanVendor: {
+    fontSize:   14,
+    fontWeight: '600',
+    color:      COLORS.textSecondary,
+  },
+  lastScanRight: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           SPACE.sm,
+  },
+  lastScanTotal: {
+    fontSize:   14,
+    fontWeight: '700',
+    color:      COLORS.accent,
+  },
+  lastScanChevron: {
+    fontSize:   16,
+    color:      COLORS.textTertiary,
+    lineHeight: 20,
+  },
+
+  // ── Tip card (shown when no receipts yet)
   tipCard: {
     flexDirection:   'row',
     alignItems:      'center',
@@ -647,7 +760,20 @@ const s = StyleSheet.create({
     gap:             SPACE.sm,
     marginTop:       SPACE.xs,
   },
-  tipIcon: { fontSize: 15 },
+  tipBubble: {
+    width:           22,
+    height:          22,
+    borderRadius:    11,
+    backgroundColor: COLORS.border,
+    justifyContent:  'center',
+    alignItems:      'center',
+  },
+  tipBubbleTxt: {
+    fontSize:   11,
+    fontWeight: '700',
+    color:      COLORS.textTertiary,
+    lineHeight: 14,
+  },
   tipText: {
     flex:       1,
     fontSize:   13,
@@ -704,7 +830,7 @@ const s = StyleSheet.create({
     paddingHorizontal: SPACE.xxxl,
     marginTop:       SPACE.md,
   },
-  errorRetryTxt:   { fontSize: 15, fontWeight: '600', color: COLORS.textPrimary },
+  errorRetryTxt:  { fontSize: 15, fontWeight: '600', color: COLORS.textPrimary },
   errorManualTxt: {
     fontSize:   13,
     color:      COLORS.textTertiary,
@@ -729,7 +855,6 @@ const s = StyleSheet.create({
   },
   reviewSubtitle: { fontSize: 14, color: COLORS.textSecondary },
 
-  // Details card (wraps RowInputs)
   detailsCard: {
     backgroundColor: COLORS.card,
     borderRadius:    RADIUS.lg,
@@ -740,7 +865,7 @@ const s = StyleSheet.create({
     ...ELEVATION.card,
   },
 
-  // Category chips
+  // Category chips — unified 1px border, smaller emoji
   chipRow: {
     flexDirection: 'row',
     gap:           SPACE.sm,
@@ -751,15 +876,15 @@ const s = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: SPACE.md,
-    paddingVertical:   8,
+    paddingVertical:   7,
     borderRadius:      RADIUS.chip,
-    borderWidth:       1.5,
+    borderWidth:       1,                // was 1.5
     backgroundColor:   'transparent',
-    gap:               6,
+    gap:               5,
   },
-  chipEmoji:          { fontSize: 14 },
-  chipText:           { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
-  chipTextActive:     { color: '#fff' },
+  chipEmoji:      { fontSize: 11 },      // was 14
+  chipText:       { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
+  chipTextActive: { color: '#fff' },
 
   // AI Notes
   notesCard: {
@@ -773,7 +898,7 @@ const s = StyleSheet.create({
   },
   noteRow: { fontSize: 13, color: COLORS.warning, lineHeight: 19 },
 
-  // Save / discard
+  // Save / discard — saveGlow now wraps PressableScale
   saveGlow: {
     width:        '100%',
     borderRadius: RADIUS.button,
@@ -785,23 +910,25 @@ const s = StyleSheet.create({
     borderRadius:    RADIUS.button,
     justifyContent:  'center',
     alignItems:      'center',
+    borderWidth:     1,
+    borderColor:     COLORS.accent + '55',
   },
-  saveBtnTxt: { fontSize: 17, fontWeight: '700', color: COLORS.bg, letterSpacing: -0.2 },
+  saveBtnTxt:  { fontSize: 17, fontWeight: '700', color: COLORS.bg, letterSpacing: -0.2 },
   discardBtn: {
-    height:          BTN_HEIGHT,
-    justifyContent:  'center',
-    alignItems:      'center',
-    marginTop:       SPACE.xs,
+    height:         BTN_HEIGHT,
+    justifyContent: 'center',
+    alignItems:     'center',
+    marginTop:      SPACE.xs,
   },
   discardTxt: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
 
   // ── Sheet internals
   sheetBody: {
-    fontSize:          15,
-    color:             COLORS.textSecondary,
-    lineHeight:        22,
-    marginBottom:      SPACE.xl,
-    textAlign:         'center',
+    fontSize:     15,
+    color:        COLORS.textSecondary,
+    lineHeight:   22,
+    marginBottom: SPACE.xl,
+    textAlign:    'center',
   },
   sheetGlow: {
     width:        '100%',
@@ -818,9 +945,9 @@ const s = StyleSheet.create({
   },
   sheetPrimaryTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
   sheetGhostBtn: {
-    height:          BTN_HEIGHT,
-    justifyContent:  'center',
-    alignItems:      'center',
+    height:         BTN_HEIGHT,
+    justifyContent: 'center',
+    alignItems:     'center',
   },
   sheetGhostTxt: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
 });
