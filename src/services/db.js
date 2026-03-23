@@ -32,10 +32,12 @@ export const initDb = async () => {
 
   // Safe migrations for installs that predate these columns
   for (const sql of [
-    "ALTER TABLE receipts ADD COLUMN category   TEXT DEFAULT 'Other'",
-    "ALTER TABLE receipts ADD COLUMN status     TEXT DEFAULT 'ready'",
-    "ALTER TABLE receipts ADD COLUMN notes      TEXT DEFAULT '[]'",
+    "ALTER TABLE receipts ADD COLUMN category   TEXT    DEFAULT 'Other'",
+    "ALTER TABLE receipts ADD COLUMN status     TEXT    DEFAULT 'ready'",
+    "ALTER TABLE receipts ADD COLUMN notes      TEXT    DEFAULT '[]'",
     "ALTER TABLE receipts ADD COLUMN updated_at TEXT",
+    "ALTER TABLE receipts ADD COLUMN synced     INTEGER DEFAULT 0",
+    "ALTER TABLE receipts ADD COLUMN version    INTEGER DEFAULT 0",
   ]) {
     try { await database.execAsync(sql); } catch (_) { /* column exists */ }
   }
@@ -89,7 +91,8 @@ export const updateReceipt = async (id, receipt) => {
   const now = new Date().toISOString();
   await database.runAsync(
     `UPDATE receipts
-     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?, updated_at=?
+     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?,
+         updated_at=?, synced=0, version=version+1
      WHERE id=?`,
     [
       receipt.vendor   || null,
@@ -132,6 +135,16 @@ export const deleteReceipt = async (id) => {
   await database.runAsync('DELETE FROM receipts WHERE id=?', [id]);
 };
 
+/** Soft-delete: marks the receipt as deleted and flags it for cloud sync. */
+export const softDeleteReceipt = async (id) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `UPDATE receipts SET status='deleted', synced=0, updated_at=?, version=version+1 WHERE id=?`,
+    [now, id]
+  );
+};
+
 // --- Reads ---
 
 export const getAllReceipts = async () => {
@@ -147,6 +160,13 @@ export const getLatestReceipt = async () => {
   const row = await database.getFirstAsync(
     'SELECT * FROM receipts ORDER BY date DESC, created_at DESC LIMIT 1'
   );
+  return deser(row) ?? null;
+};
+
+/** Fetch a single receipt by primary key. */
+export const getReceiptById = async (id) => {
+  const database = await getDb();
+  const row = await database.getFirstAsync('SELECT * FROM receipts WHERE id=?', [id]);
   return deser(row) ?? null;
 };
 
