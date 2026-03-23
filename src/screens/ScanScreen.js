@@ -1,21 +1,24 @@
 import React, { useRef, useState } from 'react';
 import {
   Animated, ActivityIndicator, ScrollView, StyleSheet,
-  Text, TextInput, TouchableOpacity, View,
+  Text, TouchableOpacity, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
-import { parseReceiptWithVision }    from '../services/claude';
+import { parseReceiptWithVision }      from '../services/claude';
 import { preprocessImage, isTooLarge } from '../services/imageProcessor';
 import { insertReceipt, getMonthlyCount, deriveStatus } from '../services/db';
-import { syncReceiptToFirestore }    from '../services/firestore';
-import { useApp }                    from '../context/AppContext';
-import { useToast }                  from '../context/ToastContext';
-import Sheet, { SheetOption }        from '../components/Sheet';
-import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, CATEGORIES } from '../constants/theme';
-import { FREE_MONTHLY_LIMIT }        from '../constants/config';
+import { syncReceiptToFirestore }      from '../services/firestore';
+import { useApp }                      from '../context/AppContext';
+import { useToast }                    from '../context/ToastContext';
+import Sheet, { SheetOption }          from '../components/Sheet';
+import RowInput                        from '../components/RowInput';
+import {
+  COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, CATEGORIES,
+} from '../constants/theme';
+import { FREE_MONTHLY_LIMIT } from '../constants/config';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Business helpers (unchanged) ─────────────────────────────────────────────
 
 const checkScanLimit = async (isPro) => {
   if (isPro) return true;
@@ -23,55 +26,65 @@ const checkScanLimit = async (isPro) => {
   return count < FREE_MONTHLY_LIMIT;
 };
 
-// Animated press wrapper used for primary CTA
-function PressableScale({ children, style, onPress, activeScale = 0.97 }) {
+// ─── UI helpers ───────────────────────────────────────────────────────────────
+
+// Pressable with spring scale + haptic on tap
+function PressableScale({ children, style, onPress, activeScale = 0.97, haptic = 'medium' }) {
   const scale = useRef(new Animated.Value(1)).current;
   const onIn  = () => Animated.spring(scale, { toValue: activeScale, damping: 20, stiffness: 400, useNativeDriver: true }).start();
   const onOut = () => Animated.spring(scale, { toValue: 1,           damping: 20, stiffness: 300, useNativeDriver: true }).start();
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (haptic === 'medium') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    else if (haptic === 'light') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress?.();
   };
   return (
     <Animated.View style={[style, { transform: [{ scale }] }]}>
-      <TouchableOpacity
-        onPress={handlePress}
-        onPressIn={onIn}
-        onPressOut={onOut}
-        activeOpacity={1}
-        style={{ width: '100%' }}
-      >
+      <TouchableOpacity onPress={handlePress} onPressIn={onIn} onPressOut={onOut} activeOpacity={1} style={{ width: '100%' }}>
         {children}
       </TouchableOpacity>
     </Animated.View>
   );
 }
 
-// ─── Main screen ───────────────────────────────────────────────────────────────
+// Section label above groups
+function SectionLabel({ children }) {
+  return <Text style={sl.text}>{children}</Text>;
+}
+const sl = StyleSheet.create({
+  text: {
+    fontSize: 11, fontWeight: '600', color: COLORS.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.6,
+    marginBottom: SPACE.sm, marginTop: SPACE.xs,
+  },
+});
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ScanScreen({ navigation }) {
   const { user, isPro } = useApp();
   const { showToast }   = useToast();
 
-  const [loading, setLoading]   = useState(false);
-  const [result, setResult]     = useState(null);
-  const [vendor, setVendor]     = useState('');
-  const [date, setDate]         = useState('');
-  const [total, setTotal]       = useState('');
-  const [tax, setTax]           = useState('');
-  const [category, setCategory] = useState('Other');
-  const [notes, setNotes]       = useState([]);
+  // ── State ────────────────────────────────────────────────────────────────
 
-  // Sheet visibility
-  const [sourceSheet,   setSourceSheet]   = useState(false);
-  const [multiSheet,    setMultiSheet]    = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [error,   setError]     = useState(null);   // inline error state
+  const [result,  setResult]    = useState(null);
+  const [vendor,  setVendor]    = useState('');
+  const [date,    setDate]      = useState('');
+  const [total,   setTotal]     = useState('');
+  const [tax,     setTax]       = useState('');
+  const [category, setCategory] = useState('Other');
+  const [notes,   setNotes]     = useState([]);
+
+  // Sheets
   const [tooLargeSheet, setTooLargeSheet] = useState(false);
   const [paywallSheet,  setPaywallSheet]  = useState(false);
+  const [multiSheet,    setMultiSheet]    = useState(false);
   const [againSheet,    setAgainSheet]    = useState(false);
-
   const againResolveRef = useRef(null);
 
-  // ── Paywall ────────────────────────────────────────────────────────────────
+  // ── Paywall ──────────────────────────────────────────────────────────────
 
   const gateScan = async () => {
     const allowed = await checkScanLimit(isPro);
@@ -79,24 +92,20 @@ export default function ScanScreen({ navigation }) {
     return true;
   };
 
-  // ── Single scan ────────────────────────────────────────────────────────────
-
-  const handleScan = () => setSourceSheet(true);
+  // ── Single scan ──────────────────────────────────────────────────────────
 
   const pickSingle = async (source) => {
-    setSourceSheet(false);
     if (!(await gateScan())) return;
-
     const opts = { mediaTypes: ['images'], quality: 1, allowsEditing: true };
     let picked;
     try {
       if (source === 'camera') {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') { showToast({ message: 'Camera permission denied', type: 'error' }); return; }
+        if (status !== 'granted') { showToast({ message: 'Camera access denied. Enable it in Settings.', type: 'error' }); return; }
         picked = await ImagePicker.launchCameraAsync(opts);
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') { showToast({ message: 'Photo library permission denied', type: 'error' }); return; }
+        if (status !== 'granted') { showToast({ message: 'Photo library access denied. Enable it in Settings.', type: 'error' }); return; }
         picked = await ImagePicker.launchImageLibraryAsync(opts);
       }
     } catch (e) { showToast({ message: e.message, type: 'error' }); return; }
@@ -107,6 +116,7 @@ export default function ScanScreen({ navigation }) {
 
   const processSingle = async (rawUri) => {
     setLoading(true);
+    setError(null);
     setResult(null);
     try {
       const { uri, size } = await preprocessImage(rawUri);
@@ -119,20 +129,20 @@ export default function ScanScreen({ navigation }) {
       }
 
       setResult({ ...parsed, photo_uri: uri });
-      setVendor(parsed.vendor || '');
-      setDate(parsed.date || '');
-      setTotal(parsed.total ? String(parsed.total) : '');
+      setVendor(parsed.vendor   || '');
+      setDate(parsed.date       || '');
+      setTotal(parsed.total     ? String(parsed.total) : '');
       setTax(parsed.tax && parsed.tax !== '0.00' ? String(parsed.tax) : '');
       setCategory(parsed.category || 'Other');
-      setNotes(parsed.notes || []);
+      setNotes(parsed.notes     || []);
     } catch (e) {
-      showToast({ message: e.message, type: 'error' });
+      setError(e.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Multi scan ─────────────────────────────────────────────────────────────
+  // ── Multi scan ───────────────────────────────────────────────────────────
 
   const handleMultiScan = async () => {
     if (!(await gateScan())) return;
@@ -140,10 +150,7 @@ export default function ScanScreen({ navigation }) {
   };
 
   const askCaptureAgain = () =>
-    new Promise(resolve => {
-      againResolveRef.current = resolve;
-      setAgainSheet(true);
-    });
+    new Promise(resolve => { againResolveRef.current = resolve; setAgainSheet(true); });
 
   const resolveAgain = (value) => {
     setAgainSheet(false);
@@ -156,7 +163,7 @@ export default function ScanScreen({ navigation }) {
     try {
       if (source === 'camera') {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') { showToast({ message: 'Camera permission denied', type: 'error' }); return; }
+        if (status !== 'granted') { showToast({ message: 'Camera access denied. Enable it in Settings.', type: 'error' }); return; }
         while (true) {
           const picked = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true });
           if (picked.canceled) break;
@@ -166,12 +173,8 @@ export default function ScanScreen({ navigation }) {
         }
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') { showToast({ message: 'Photo library permission denied', type: 'error' }); return; }
-        const picked = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images'],
-          quality: 1,
-          allowsMultipleSelection: true,
-        });
+        if (status !== 'granted') { showToast({ message: 'Photo library access denied. Enable it in Settings.', type: 'error' }); return; }
+        const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, allowsMultipleSelection: true });
         if (picked.canceled) return;
         assets = picked.assets;
       }
@@ -208,23 +211,22 @@ export default function ScanScreen({ navigation }) {
     navigation.navigate('Processing', { items: queueItems });
   };
 
-  // ── Save ───────────────────────────────────────────────────────────────────
+  // ── Save ─────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const now = new Date().toISOString();
     const receipt = {
-      vendor:    vendor.trim() || null,
-      date:      date.trim()   || null,
-      total:     parseFloat(total) || 0,
-      tax:       parseFloat(tax)   || 0,
+      vendor:     vendor.trim() || null,
+      date:       date.trim()   || null,
+      total:      parseFloat(total) || 0,
+      tax:        parseFloat(tax)   || 0,
       category,
       notes,
       photo_uri:  result?.photo_uri || null,
       created_at: now,
     };
     receipt.status = deriveStatus(receipt);
-
     await insertReceipt(receipt);
     if (isPro && user) await syncReceiptToFirestore(user.uid, receipt);
     setResult(null);
@@ -246,219 +248,367 @@ export default function ScanScreen({ navigation }) {
     }
   };
 
-  // ── Render: Loading ────────────────────────────────────────────────────────
+  // ── Shared sheets (rendered in all states) ────────────────────────────────
 
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <View style={styles.loadingCard}>
-          <View style={styles.spinnerWrap}>
-            <ActivityIndicator size="large" color={COLORS.accent} />
-          </View>
-          <Text style={styles.loadingTitle}>Analyzing receipt</Text>
-          <Text style={styles.loadingSubtext}>This usually takes a few seconds</Text>
-        </View>
-      </View>
-    );
-  }
-
-  // ── Render: Result (Review & Save) ────────────────────────────────────────
-
-  if (result) {
-    return (
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text style={styles.reviewHeading}>Review & Save</Text>
-        <Text style={styles.reviewSubtext}>Verify the details before saving</Text>
-
-        <Field label="Vendor" value={vendor} onChange={setVendor} warn={!vendor} />
-        <Field label="Date"   value={date}   onChange={setDate}   warn={!date} />
-        <Field label="Total"  value={total}  onChange={setTotal}  warn={!total} prefix="$" keyboardType="decimal-pad" />
-        <Field label="Tax"    value={tax}    onChange={setTax}    warn={false}  prefix="$" keyboardType="decimal-pad" />
-
-        <Text style={styles.sectionLabel}>Category</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll} contentContainerStyle={styles.categoryContent}>
-          {CATEGORIES.map(cat => (
-            <TouchableOpacity
-              key={cat.key}
-              style={[styles.categoryChip, { borderColor: cat.color + '80' }, category === cat.key && { backgroundColor: cat.color, borderColor: cat.color }]}
-              onPress={() => setCategory(cat.key)}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
-              <Text style={[styles.categoryChipText, category === cat.key && styles.categoryChipTextActive]}>
-                {cat.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {notes.length > 0 && (
-          <View style={styles.notesBox}>
-            <Text style={styles.notesLabel}>AI Notes</Text>
-            {notes.map((n, i) => <Text key={i} style={styles.noteText}>· {n}</Text>)}
-          </View>
-        )}
-
-        {/* Save CTA with glow */}
-        <View style={styles.glowWrap}>
-          <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.9}>
-            <Text style={styles.saveBtnText}>Save Receipt</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.cancelBtn} onPress={() => setResult(null)} activeOpacity={0.7}>
-          <Text style={styles.cancelBtnText}>Discard</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    );
-  }
-
-  // ── Render: Hero (Idle) ───────────────────────────────────────────────────
-
-  return (
-    <View style={[styles.container, styles.center]}>
-
-      {/* ── Sheets ──────────────────────────────────────────────────────── */}
-
-      <Sheet visible={sourceSheet} onClose={() => setSourceSheet(false)} title="Scan Receipt">
-        <SheetOption icon="📷" label="Take Photo"    sublabel="Use your camera"          onPress={() => pickSingle('camera')}  />
-        <SheetOption icon="🖼️" label="Choose Photo"  sublabel="Pick from library"         onPress={() => pickSingle('gallery')} last />
-      </Sheet>
-
-      <Sheet visible={multiSheet} onClose={() => setMultiSheet(false)} title="Multi Scan">
-        <SheetOption icon="📷" label="Camera"        sublabel="Capture one at a time"     onPress={() => { setMultiSheet(false); doMultiScan('camera');  }} />
-        <SheetOption icon="🖼️" label="Photo Library" sublabel="Select multiple at once"   onPress={() => { setMultiSheet(false); doMultiScan('gallery'); }} last />
-      </Sheet>
-
+  const Sheets = (
+    <>
       <Sheet visible={tooLargeSheet} onClose={() => setTooLargeSheet(false)} title="Image Too Large">
-        <Text style={sheet.body}>
-          The photo couldn't be compressed enough. Try cropping tighter or retaking closer to the receipt.
+        <Text style={s.sheetBody}>
+          The photo couldn't be compressed enough. Crop tighter or retake closer to the receipt.
         </Text>
-        <SheetOption icon="📷" label="Retake / Recrop" onPress={() => { setTooLargeSheet(false); setSourceSheet(true); }} />
-        <SheetOption icon="✏️" label="Enter Manually"  onPress={() => { setTooLargeSheet(false); setResult({ photo_uri: null }); }} last />
+        <SheetOption icon="📷" label="Try Again"      onPress={() => { setTooLargeSheet(false); pickSingle('camera'); }} />
+        <SheetOption icon="✏️" label="Enter Manually" onPress={() => { setTooLargeSheet(false); setResult({ photo_uri: null }); }} last />
       </Sheet>
 
       <Sheet visible={paywallSheet} onClose={() => setPaywallSheet(false)} title="Monthly Limit Reached">
-        <Text style={sheet.body}>
-          Free accounts can scan {FREE_MONTHLY_LIMIT} receipts per month.{'\n'}Upgrade to Pro for unlimited scans and cloud backup.
+        <Text style={s.sheetBody}>
+          Free accounts get {FREE_MONTHLY_LIMIT} scans per month.{'\n'}Upgrade to Pro for unlimited scans and cloud backup.
         </Text>
-        <View style={sheet.glowWrap}>
-          <TouchableOpacity style={sheet.upgradeBtn} onPress={() => { setPaywallSheet(false); navigation.navigate('Account'); }} activeOpacity={0.9}>
-            <Text style={sheet.upgradeTxt}>Upgrade to Pro</Text>
+        <View style={s.sheetGlow}>
+          <TouchableOpacity style={s.sheetPrimaryBtn} onPress={() => { setPaywallSheet(false); navigation.navigate('Account'); }} activeOpacity={0.9}>
+            <Text style={s.sheetPrimaryTxt}>Upgrade to Pro</Text>
           </TouchableOpacity>
         </View>
-        <TouchableOpacity style={sheet.cancelOption} onPress={() => setPaywallSheet(false)} activeOpacity={0.7}>
-          <Text style={sheet.cancelTxt}>Maybe later</Text>
+        <TouchableOpacity style={s.sheetGhostBtn} onPress={() => setPaywallSheet(false)} activeOpacity={0.7}>
+          <Text style={s.sheetGhostTxt}>Maybe later</Text>
         </TouchableOpacity>
+      </Sheet>
+
+      <Sheet visible={multiSheet} onClose={() => setMultiSheet(false)} title="Multi Scan">
+        <SheetOption icon="📷" label="Camera"        sublabel="Capture one at a time"   onPress={() => { setMultiSheet(false); doMultiScan('camera');  }} />
+        <SheetOption icon="🖼️" label="Photo Library" sublabel="Select multiple images"   onPress={() => { setMultiSheet(false); doMultiScan('gallery'); }} last />
       </Sheet>
 
       <Sheet visible={againSheet} onClose={() => resolveAgain(false)} title="Receipt added">
         <SheetOption icon="➕" label="Capture another" onPress={() => resolveAgain(true)}  />
         <SheetOption icon="✅" label="Done scanning"   onPress={() => resolveAgain(false)} last />
       </Sheet>
+    </>
+  );
 
-      {/* ── Hero content ────────────────────────────────────────────────── */}
+  // ── Render: Processing ────────────────────────────────────────────────────
 
-      <View style={styles.heroSection}>
-        <Text style={styles.logo}>Zenvoy</Text>
-        <Text style={styles.tagline}>Receipts, organized.</Text>
+  if (loading) {
+    return (
+      <View style={s.screen}>
+        {Sheets}
+        <ScreenHeader title="Scanning" subtitle="Reading your receipt" />
+        <View style={s.heroArea}>
+          <View style={s.heroCard}>
+            <View style={s.processingSpinnerWrap}>
+              <ActivityIndicator size="large" color={COLORS.accent} />
+            </View>
+            <Text style={s.processingTitle}>Analyzing receipt</Text>
+            <Text style={s.processingSubtext}>This usually takes a few seconds</Text>
+          </View>
+        </View>
+        <View style={s.bottomArea} />
+      </View>
+    );
+  }
+
+  // ── Render: Error ─────────────────────────────────────────────────────────
+
+  if (error) {
+    return (
+      <View style={s.screen}>
+        {Sheets}
+        <ScreenHeader title="Zenvoy" subtitle="Receipts, organized." />
+        <View style={s.heroArea}>
+          <View style={s.heroCard}>
+            <View style={s.errorIconWrap}>
+              <Text style={s.errorIconText}>✕</Text>
+            </View>
+            <Text style={s.errorTitle}>Couldn't read this receipt</Text>
+            <Text style={s.errorMessage} numberOfLines={3}>{error}</Text>
+            <TouchableOpacity style={s.errorRetryBtn} onPress={() => { setError(null); pickSingle('camera'); }} activeOpacity={0.8}>
+              <Text style={s.errorRetryTxt}>Try Again</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => { setError(null); setResult({ photo_uri: null }); }} activeOpacity={0.7}>
+              <Text style={s.errorManualTxt}>Enter manually instead</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        <View style={s.bottomArea} />
+      </View>
+    );
+  }
+
+  // ── Render: Review & Save ─────────────────────────────────────────────────
+
+  if (result) {
+    const missing = !vendor || !date || !total;
+    return (
+      <View style={s.screen}>
+        {Sheets}
+        <ScrollView
+          style={s.reviewScroll}
+          contentContainerStyle={s.reviewContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <View style={s.reviewHeader}>
+            <Text style={s.reviewTitle}>Review & Save</Text>
+            <Text style={s.reviewSubtitle}>
+              {missing ? 'Some fields need attention' : 'Looks good — ready to save'}
+            </Text>
+          </View>
+
+          {/* Details card */}
+          <SectionLabel>Receipt Details</SectionLabel>
+          <View style={s.detailsCard}>
+            <RowInput label="Vendor" value={vendor} onChange={setVendor} warn={!vendor} />
+            <RowInput label="Date"   value={date}   onChange={setDate}   warn={!date}   />
+            <RowInput label="Total"  value={total}  onChange={setTotal}  warn={!total}  prefix="$" keyboardType="decimal-pad" />
+            <RowInput label="Tax"    value={tax}    onChange={setTax}                   prefix="$" keyboardType="decimal-pad" last />
+          </View>
+
+          {/* Category */}
+          <SectionLabel>Category</SectionLabel>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+            {CATEGORIES.map(cat => (
+              <TouchableOpacity
+                key={cat.key}
+                style={[s.chip, { borderColor: cat.color + '80' }, category === cat.key && { backgroundColor: cat.color, borderColor: cat.color }]}
+                onPress={() => setCategory(cat.key)}
+                activeOpacity={0.75}
+              >
+                <Text style={s.chipEmoji}>{cat.emoji}</Text>
+                <Text style={[s.chipText, category === cat.key && s.chipTextActive]}>{cat.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* AI notes */}
+          {notes.length > 0 && (
+            <>
+              <SectionLabel>AI Notes</SectionLabel>
+              <View style={s.notesCard}>
+                {notes.map((n, i) => (
+                  <Text key={i} style={s.noteRow}>· {n}</Text>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Actions */}
+          <View style={[s.saveGlow, { marginTop: SPACE.xl }]}>
+            <TouchableOpacity style={s.saveBtn} onPress={handleSave} activeOpacity={0.9}>
+              <Text style={s.saveBtnTxt}>Save Receipt</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={s.discardBtn} onPress={() => setResult(null)} activeOpacity={0.7}>
+            <Text style={s.discardTxt}>Discard</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // ── Render: Idle ──────────────────────────────────────────────────────────
+
+  return (
+    <View style={s.screen}>
+      {Sheets}
+
+      {/* Header */}
+      <ScreenHeader title="Zenvoy" subtitle="Receipts, organized." />
+
+      {/* Hero card */}
+      <View style={s.heroArea}>
+        <View style={s.heroCard}>
+          {/* Receipt icon */}
+          <View style={s.heroIconWrap}>
+            <ReceiptIconGraphic />
+          </View>
+          <Text style={s.heroCardTitle}>Scan a receipt</Text>
+          <Text style={s.heroCardBody}>
+            Point at any receipt for instant data extraction.
+          </Text>
+        </View>
       </View>
 
-      <View style={styles.ctaSection}>
-        {/* Primary CTA — teal glow */}
-        <PressableScale style={styles.glowWrap} onPress={handleScan}>
-          <View style={styles.scanBtn}>
-            <Text style={styles.scanBtnIcon}>⬡</Text>
-            <Text style={styles.scanBtnText}>Scan Receipt</Text>
+      {/* CTA + secondary actions */}
+      <View style={s.bottomArea}>
+        {/* Primary: Scan (camera) */}
+        <PressableScale style={s.primaryGlow} onPress={() => pickSingle('camera')}>
+          <View style={s.primaryBtn}>
+            <Text style={s.primaryBtnTxt}>Scan Receipt</Text>
           </View>
         </PressableScale>
 
-        {/* Divider */}
-        <View style={styles.orRow}>
-          <View style={styles.orLine} />
-          <Text style={styles.orText}>or</Text>
-          <View style={styles.orLine} />
+        {/* Secondary: Import from Photos */}
+        <TouchableOpacity style={s.secondaryBtn} onPress={() => pickSingle('gallery')} activeOpacity={0.75}>
+          <Text style={s.secondaryBtnTxt}>Import from Photos</Text>
+        </TouchableOpacity>
+
+        {/* Tertiary text row */}
+        <View style={s.tertiaryRow}>
+          <TouchableOpacity onPress={handleMultiScan} activeOpacity={0.7} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={s.tertiaryLink}>⚡ Multi Scan</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Secondary CTA */}
-        <TouchableOpacity style={styles.multiBtn} onPress={handleMultiScan} activeOpacity={0.75}>
-          <Text style={styles.multiBtnText}>⚡  Multi Scan</Text>
-        </TouchableOpacity>
+        {/* Tip card */}
+        <View style={s.tipCard}>
+          <Text style={s.tipIcon}>💡</Text>
+          <Text style={s.tipText}>Crop tight to the receipt for best results</Text>
+        </View>
       </View>
-
-      <View style={styles.bottomSpacer} />
     </View>
   );
 }
 
-// ─── Field ────────────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Field({ label, value, onChange, warn, prefix, keyboardType }) {
+function ScreenHeader({ title, subtitle }) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <View style={[styles.inputRow, warn && styles.inputWarn]}>
-        {prefix && <Text style={styles.prefix}>{prefix}</Text>}
-        <TextInput
-          style={styles.input}
-          value={value}
-          onChangeText={onChange}
-          keyboardType={keyboardType || 'default'}
-          placeholderTextColor={COLORS.textTertiary}
-          placeholder={`Enter ${label.toLowerCase()}`}
-          selectionColor={COLORS.accent}
-        />
+    <View style={s.header}>
+      <Text style={s.headerTitle}>{title}</Text>
+      <Text style={s.headerSubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
+// Geometric receipt icon (no emoji, no deps)
+function ReceiptIconGraphic() {
+  return (
+    <View style={s.receiptOuter}>
+      <View style={s.receiptInner}>
+        {/* Text lines */}
+        <View style={[s.rLine, { width: '82%' }]} />
+        <View style={[s.rLine, { width: '60%' }]} />
+        <View style={[s.rLine, { width: '72%' }]} />
+        <View style={s.rDivider} />
+        {/* Amount lines (accent) */}
+        <View style={[s.rLine, { width: '48%', backgroundColor: COLORS.accent, alignSelf: 'flex-end' }]} />
+        <View style={[s.rLine, { width: '32%', backgroundColor: COLORS.accent + '60', alignSelf: 'flex-end' }]} />
       </View>
-      {warn && <Text style={styles.warnText}>Not detected — please enter manually</Text>}
     </View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: COLORS.bg, paddingHorizontal: H_PAD },
-  center:      { justifyContent: 'center', alignItems: 'center' },
+const s = StyleSheet.create({
 
-  // ── Hero layout
-  heroSection: { alignItems: 'center', marginBottom: SPACE.huge },
-  logo:        { fontSize: 42, fontWeight: '800', color: COLORS.accent, letterSpacing: -1.5, marginBottom: 10 },
-  tagline:     { fontSize: 16, color: COLORS.textSecondary, fontWeight: '400', letterSpacing: 0.2 },
+  // ── Layout skeleton
+  screen: {
+    flex:            1,
+    backgroundColor: COLORS.bg,
+  },
 
-  ctaSection:  { width: '100%', gap: 0 },
-  bottomSpacer:{ height: SPACE.huge },
+  header: {
+    paddingHorizontal: H_PAD,
+    paddingTop:        SPACE.xl,
+    paddingBottom:     SPACE.md,
+  },
+  headerTitle: {
+    fontSize:      22,
+    fontWeight:    '800',
+    color:         COLORS.accent,
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    fontSize:   13,
+    color:      COLORS.textSecondary,
+    marginTop:  2,
+    fontWeight: '400',
+  },
 
-  // ── Glow wrapper (iOS colored shadow, Android elevation)
-  glowWrap: {
-    width: '100%',
+  heroArea: {
+    flex:              1,
+    paddingHorizontal: H_PAD,
+    justifyContent:    'center',
+  },
+
+  bottomArea: {
+    paddingHorizontal: H_PAD,
+    paddingBottom:     SPACE.xxl,
+    paddingTop:        SPACE.md,
+    gap:               SPACE.sm,
+  },
+
+  // ── Hero card (idle)
+  heroCard: {
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.xl,
+    borderWidth:     StyleSheet.hairlineWidth,
+    borderColor:     COLORS.border,
+    padding:         SPACE.xxxl,
+    alignItems:      'center',
+    gap:             SPACE.sm,
+    ...ELEVATION.card,
+  },
+
+  heroIconWrap: {
+    marginBottom: SPACE.md,
+  },
+
+  // Receipt graphic
+  receiptOuter: {
+    width:           64,
+    height:          76,
+    borderRadius:    RADIUS.md,
+    backgroundColor: COLORS.cardAlt,
+    borderWidth:     1,
+    borderColor:     COLORS.borderStrong,
+    padding:         10,
+    justifyContent:  'space-between',
+    overflow:        'hidden',
+  },
+  receiptInner: {
+    flex: 1,
+    justifyContent: 'space-evenly',
+  },
+  rLine: {
+    height:          3,
+    backgroundColor: COLORS.borderStrong,
+    borderRadius:    2,
+  },
+  rDivider: {
+    height:          StyleSheet.hairlineWidth,
+    backgroundColor: COLORS.border,
+    marginVertical:  4,
+  },
+
+  heroCardTitle: {
+    fontSize:      20,
+    fontWeight:    '700',
+    color:         COLORS.textPrimary,
+    letterSpacing: -0.3,
+    textAlign:     'center',
+  },
+  heroCardBody: {
+    fontSize:   14,
+    color:      COLORS.textSecondary,
+    textAlign:  'center',
+    lineHeight: 20,
+  },
+
+  // ── Primary CTA
+  primaryGlow: {
+    width:        '100%',
     borderRadius: RADIUS.button,
     ...ELEVATION.glow,
   },
-
-  // ── Primary scan button
-  scanBtn: {
+  primaryBtn: {
     backgroundColor: COLORS.accent,
     height:          BTN_HEIGHT,
     borderRadius:    RADIUS.button,
-    flexDirection:   'row',
     justifyContent:  'center',
     alignItems:      'center',
-    gap:             10,
   },
-  scanBtnIcon: { fontSize: 20 },
-  scanBtnText: { fontSize: 18, fontWeight: '700', color: COLORS.bg, letterSpacing: -0.3 },
+  primaryBtnTxt: {
+    fontSize:      17,
+    fontWeight:    '700',
+    color:         COLORS.bg,
+    letterSpacing: -0.2,
+  },
 
-  // ── Divider
-  orRow:  { flexDirection: 'row', alignItems: 'center', marginVertical: SPACE.lg },
-  orLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: COLORS.border },
-  orText: { fontSize: 13, color: COLORS.textTertiary, fontWeight: '500', marginHorizontal: SPACE.md },
-
-  // ── Secondary multi-scan
-  multiBtn: {
+  // ── Secondary: Import
+  secondaryBtn: {
     height:          BTN_HEIGHT,
     borderRadius:    RADIUS.button,
     justifyContent:  'center',
@@ -467,133 +617,210 @@ const styles = StyleSheet.create({
     borderColor:     COLORS.borderStrong,
     backgroundColor: COLORS.cardAlt,
   },
-  multiBtnText: { fontSize: 16, fontWeight: '600', color: COLORS.textPrimary },
+  secondaryBtnTxt: {
+    fontSize:   16,
+    fontWeight: '600',
+    color:      COLORS.textPrimary,
+  },
 
-  // ── Loading state
-  loadingCard: {
+  // ── Tertiary row
+  tertiaryRow: {
+    alignItems:  'center',
+    paddingVertical: SPACE.xs,
+  },
+  tertiaryLink: {
+    fontSize:   14,
+    color:      COLORS.textSecondary,
+    fontWeight: '600',
+  },
+
+  // ── Tip card
+  tipCard: {
+    flexDirection:   'row',
     alignItems:      'center',
-    backgroundColor: COLORS.card,
-    borderRadius:    RADIUS.xl,
-    padding:         SPACE.xxxl,
-    width:           '80%',
+    backgroundColor: COLORS.cardAlt,
+    borderRadius:    RADIUS.md,
     borderWidth:     StyleSheet.hairlineWidth,
     borderColor:     COLORS.border,
+    paddingVertical:   SPACE.md,
+    paddingHorizontal: SPACE.md,
     gap:             SPACE.sm,
-    ...ELEVATION.card,
+    marginTop:       SPACE.xs,
   },
-  spinnerWrap: {
-    width:           64,
-    height:          64,
-    borderRadius:    32,
+  tipIcon: { fontSize: 15 },
+  tipText: {
+    flex:       1,
+    fontSize:   13,
+    color:      COLORS.textSecondary,
+    lineHeight: 18,
+    fontWeight: '400',
+  },
+
+  // ── Processing state
+  processingSpinnerWrap: {
+    width:           72,
+    height:          72,
+    borderRadius:    36,
     backgroundColor: COLORS.accentMuted,
+    borderWidth:     1,
+    borderColor:     COLORS.accent + '30',
     justifyContent:  'center',
     alignItems:      'center',
     marginBottom:    SPACE.md,
   },
-  loadingTitle:   { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.3 },
-  loadingSubtext: { fontSize: 14, color: COLORS.textSecondary },
+  processingTitle: {
+    fontSize:      20,
+    fontWeight:    '700',
+    color:         COLORS.textPrimary,
+    letterSpacing: -0.3,
+  },
+  processingSubtext: {
+    fontSize:  14,
+    color:     COLORS.textSecondary,
+    textAlign: 'center',
+  },
 
-  // ── Review / result state
-  scrollContent:   { paddingVertical: SPACE.xxl, paddingBottom: 40 },
-  reviewHeading:   { fontSize: 26, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.5, marginBottom: 4 },
-  reviewSubtext:   { fontSize: 14, color: COLORS.textSecondary, marginBottom: SPACE.xxl },
-
-  field:       { marginBottom: SPACE.lg },
-  sectionLabel: { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600', letterSpacing: 0.6,
-                  textTransform: 'uppercase', marginBottom: SPACE.sm },
-  fieldLabel:  { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600', letterSpacing: 0.6,
-                 textTransform: 'uppercase', marginBottom: SPACE.sm },
-  inputRow: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    backgroundColor: COLORS.card,
-    borderRadius:    RADIUS.input,
+  // ── Error state
+  errorIconWrap: {
+    width:           64,
+    height:          64,
+    borderRadius:    32,
+    backgroundColor: COLORS.dangerMuted,
     borderWidth:     1,
-    borderColor:     COLORS.border,
-    paddingHorizontal: SPACE.md,
-  },
-  inputWarn:   { borderColor: COLORS.warning },
-  prefix:      { color: COLORS.textSecondary, fontSize: 16, marginRight: SPACE.xs },
-  input:       { flex: 1, height: 48, color: COLORS.textPrimary, fontSize: 16 },
-  warnText:    { fontSize: 12, color: COLORS.warning, marginTop: SPACE.xs, fontWeight: '500' },
-
-  categoryScroll:         { marginBottom: SPACE.sm },
-  categoryContent:        { paddingBottom: SPACE.sm, gap: SPACE.sm, flexDirection: 'row' },
-  categoryChip: {
-    flexDirection:   'row',
+    borderColor:     COLORS.danger + '30',
+    justifyContent:  'center',
     alignItems:      'center',
-    paddingHorizontal: SPACE.md,
-    paddingVertical: 8,
-    borderRadius:    RADIUS.chip,
-    borderWidth:     1.5,
-    backgroundColor: 'transparent',
-    gap:             6,
+    marginBottom:    SPACE.md,
   },
-  categoryEmoji:          { fontSize: 15 },
-  categoryChipText:       { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
-  categoryChipTextActive: { color: '#fff' },
+  errorIconText:  { fontSize: 24, fontWeight: '700', color: COLORS.danger },
+  errorTitle:     { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.3 },
+  errorMessage:   { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 19 },
+  errorRetryBtn: {
+    backgroundColor: COLORS.card,
+    borderWidth:     1,
+    borderColor:     COLORS.borderStrong,
+    borderRadius:    RADIUS.button,
+    paddingVertical:   12,
+    paddingHorizontal: SPACE.xxxl,
+    marginTop:       SPACE.md,
+  },
+  errorRetryTxt:   { fontSize: 15, fontWeight: '600', color: COLORS.textPrimary },
+  errorManualTxt: {
+    fontSize:   13,
+    color:      COLORS.textTertiary,
+    fontWeight: '500',
+    marginTop:  SPACE.md,
+  },
 
-  notesBox: {
+  // ── Review state
+  reviewScroll:  { flex: 1, backgroundColor: COLORS.bg },
+  reviewContent: {
+    paddingHorizontal: H_PAD,
+    paddingTop:        SPACE.xl,
+    paddingBottom:     SPACE.huge,
+  },
+  reviewHeader: { marginBottom: SPACE.xxl },
+  reviewTitle: {
+    fontSize:      26,
+    fontWeight:    '700',
+    color:         COLORS.textPrimary,
+    letterSpacing: -0.5,
+    marginBottom:  SPACE.xs,
+  },
+  reviewSubtitle: { fontSize: 14, color: COLORS.textSecondary },
+
+  // Details card (wraps RowInputs)
+  detailsCard: {
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.lg,
+    borderWidth:     StyleSheet.hairlineWidth,
+    borderColor:     COLORS.border,
+    marginBottom:    SPACE.xl,
+    overflow:        'hidden',
+    ...ELEVATION.card,
+  },
+
+  // Category chips
+  chipRow: {
+    flexDirection: 'row',
+    gap:           SPACE.sm,
+    paddingBottom: SPACE.sm,
+    marginBottom:  SPACE.sm,
+  },
+  chip: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    paddingHorizontal: SPACE.md,
+    paddingVertical:   8,
+    borderRadius:      RADIUS.chip,
+    borderWidth:       1.5,
+    backgroundColor:   'transparent',
+    gap:               6,
+  },
+  chipEmoji:          { fontSize: 14 },
+  chipText:           { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
+  chipTextActive:     { color: '#fff' },
+
+  // AI Notes
+  notesCard: {
     backgroundColor: COLORS.cardAlt,
     borderRadius:    RADIUS.md,
     padding:         SPACE.md,
-    marginBottom:    SPACE.lg,
     gap:             SPACE.xs,
     borderWidth:     StyleSheet.hairlineWidth,
     borderColor:     COLORS.border,
+    marginBottom:    SPACE.xl,
   },
-  notesLabel: { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600', letterSpacing: 0.5,
-                textTransform: 'uppercase', marginBottom: SPACE.xs },
-  noteText: { fontSize: 13, color: COLORS.warning, lineHeight: 19 },
+  noteRow: { fontSize: 13, color: COLORS.warning, lineHeight: 19 },
 
+  // Save / discard
+  saveGlow: {
+    width:        '100%',
+    borderRadius: RADIUS.button,
+    ...ELEVATION.glow,
+  },
   saveBtn: {
     backgroundColor: COLORS.accent,
     height:          BTN_HEIGHT,
     borderRadius:    RADIUS.button,
     justifyContent:  'center',
     alignItems:      'center',
-    marginTop:       SPACE.xxl,
   },
-  saveBtnText: { fontSize: 17, fontWeight: '700', color: COLORS.bg, letterSpacing: -0.2 },
-
-  cancelBtn: {
+  saveBtnTxt: { fontSize: 17, fontWeight: '700', color: COLORS.bg, letterSpacing: -0.2 },
+  discardBtn: {
     height:          BTN_HEIGHT,
-    borderRadius:    RADIUS.button,
     justifyContent:  'center',
     alignItems:      'center',
-    marginTop:       SPACE.sm,
+    marginTop:       SPACE.xs,
   },
-  cancelBtnText: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
-});
+  discardTxt: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
 
-// Styles inside Sheet content (paywall / tooLarge)
-const sheet = StyleSheet.create({
-  body: {
-    fontSize:        15,
-    color:           COLORS.textSecondary,
-    lineHeight:      22,
-    marginBottom:    SPACE.xl,
-    textAlign:       'center',
-    paddingHorizontal: SPACE.xs,
+  // ── Sheet internals
+  sheetBody: {
+    fontSize:          15,
+    color:             COLORS.textSecondary,
+    lineHeight:        22,
+    marginBottom:      SPACE.xl,
+    textAlign:         'center',
   },
-  glowWrap: {
+  sheetGlow: {
     width:        '100%',
     borderRadius: RADIUS.button,
+    marginBottom: SPACE.xs,
     ...ELEVATION.glow,
   },
-  upgradeBtn: {
+  sheetPrimaryBtn: {
     backgroundColor: COLORS.accent,
     height:          BTN_HEIGHT,
     borderRadius:    RADIUS.button,
     justifyContent:  'center',
     alignItems:      'center',
-    marginBottom:    SPACE.xs,
   },
-  upgradeTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
-  cancelOption: {
+  sheetPrimaryTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  sheetGhostBtn: {
     height:          BTN_HEIGHT,
     justifyContent:  'center',
     alignItems:      'center',
   },
-  cancelTxt: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
+  sheetGhostTxt: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
 });
