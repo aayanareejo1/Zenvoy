@@ -18,6 +18,15 @@ import AccountScreen           from './src/screens/AccountScreen';
 import SyncManagementScreen    from './src/screens/SyncManagementScreen';
 import SyncStatusBadge         from './src/components/SyncStatusBadge';
 import { COLORS }              from './src/constants/theme';
+import ScanScreen         from './src/screens/ScanScreen';
+import ProcessingScreen   from './src/screens/ProcessingScreen';
+import ReceiptsScreen     from './src/screens/ReceiptsScreen';
+import ReceiptDetailScreen from './src/screens/ReceiptDetailScreen';
+import InboxScreen        from './src/screens/InboxScreen';
+import ReportsScreen      from './src/screens/ReportsScreen';
+import AccountScreen      from './src/screens/AccountScreen';
+import { COLORS }         from './src/constants/theme';
+import { registerBackgroundTask } from './src/services/backgroundProcessor';
 
 const Tab           = createBottomTabNavigator();
 const ScanStack     = createNativeStackNavigator();
@@ -120,16 +129,24 @@ function Tabs() {
 }
 
 export default function App() {
+  React.useEffect(() => {
+    registerBackgroundTask();
+  }, []);
+
   return (
     <AppProvider>
       <SyncProvider>
         <ToastProvider>
+      <ToastProvider>
+        <SyncProvider>
           <NavigationContainer>
             <StatusBar style="light" />
             <Tabs />
           </NavigationContainer>
         </ToastProvider>
       </SyncProvider>
+        </SyncProvider>
+      </ToastProvider>
     </AppProvider>
   );
 }
