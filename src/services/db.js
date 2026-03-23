@@ -141,6 +141,15 @@ export const getAllReceipts = async () => {
   ));
 };
 
+/** Single most-recent receipt by date then created_at — used for the Scan screen "Recent" card. */
+export const getLatestReceipt = async () => {
+  const database = await getDb();
+  const row = await database.getFirstAsync(
+    'SELECT * FROM receipts ORDER BY date DESC, created_at DESC LIMIT 1'
+  );
+  return deser(row) ?? null;
+};
+
 /** Receipts shown in the main list — only confirmed/reviewed. */
 export const getReadyReceipts = async () => {
   const database = await getDb();
