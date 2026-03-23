@@ -91,3 +91,57 @@ export const CATEGORIES = [
 
 export const getCategoryInfo = (key) =>
   CATEGORIES.find(c => c.key === key) ?? CATEGORIES[CATEGORIES.length - 1];
+
+// ─── Themes (for ThemeContext) ──────────────────────────────────────────────────
+
+export const DARK_THEME = {
+  bg:            '#0A0A0F',
+  bgElevated:    '#111118',
+  card:          '#16161E',
+  cardAlt:       '#1E1E2A',
+  cardPressed:   '#202030',
+  border:        '#252536',
+  borderStrong:  '#373752',
+  accent:        '#00C4A0',
+  accentGlow:    'rgba(0,196,160,0.22)',
+  accentMuted:   'rgba(0,196,160,0.09)',
+  accentStrong:  '#00D9B0',
+  textPrimary:   '#F2F2F7',
+  textSecondary: '#6E6E82',
+  textTertiary:  '#3D3D52',
+  danger:        '#FF453A',
+  dangerMuted:   'rgba(255,69,58,0.12)',
+  warning:       '#FF9F0A',
+  warningMuted:  'rgba(255,159,10,0.12)',
+  success:       '#30D158',
+  successMuted:  'rgba(48,209,88,0.12)',
+  overlay:       'rgba(0,0,0,0.72)',
+  scrim:         'rgba(0,0,0,0.45)',
+};
+
+export const LIGHT_THEME = {
+  bg:            '#F2F2F7',
+  bgElevated:    '#FFFFFF',
+  card:          '#FFFFFF',
+  cardAlt:       '#F0F0F5',
+  cardPressed:   '#E5E5EA',
+  border:        '#E0E0E8',
+  borderStrong:  '#C7C7D0',
+  accent:        '#00A882',
+  accentGlow:    'rgba(0,168,130,0.18)',
+  accentMuted:   'rgba(0,168,130,0.09)',
+  accentStrong:  '#00C49A',
+  textPrimary:   '#1C1C1E',
+  textSecondary: '#6C6C80',
+  textTertiary:  '#AEAEB2',
+  danger:        '#FF3B30',
+  dangerMuted:   'rgba(255,59,48,0.10)',
+  warning:       '#FF9500',
+  warningMuted:  'rgba(255,149,0,0.10)',
+  success:       '#34C759',
+  successMuted:  'rgba(52,199,89,0.10)',
+  overlay:       'rgba(0,0,0,0.50)',
+  scrim:         'rgba(0,0,0,0.28)',
+};
+
+export const getTheme = (isDarkMode) => isDarkMode ? DARK_THEME : LIGHT_THEME;
