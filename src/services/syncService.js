@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirestore, collection, onSnapshot } from '@react-native-firebase/firestore';
 import {
-  getUnsynced,
+  getUnsyncedReceipts,
   getReceiptById,
   getAllReceipts,
   markReceiptSynced,
@@ -15,7 +15,7 @@ import {
 import {
   updateReceiptInFirestore,
   softDeleteReceiptInFirestore,
-  getCloudReceipts,
+  fetchFirestoreReceipts,
   getCloudReceipt,
 } from './firestore';
 import { normalizeNotes } from '../utils/receiptHelpers';
@@ -49,7 +49,7 @@ export function resolveConflict(localReceipt, cloudReceipt) {
 
 export async function syncLocalChangesToFirestore(user) {
   const deviceId = await getDeviceId();
-  const unsynced = await getUnsynced();
+  const unsynced = await getUnsyncedReceipts();
 
   for (const receipt of unsynced) {
     try {
@@ -95,7 +95,7 @@ export async function syncLocalChangesToFirestore(user) {
 
 export async function syncCloudChangesToLocal(user) {
   try {
-    const cloudReceipts = await getCloudReceipts(user.uid);
+    const cloudReceipts = await fetchFirestoreReceipts(user.uid);
     const localAll      = await getAllReceipts();
 
     // Index local receipts by their Firestore ID for O(1) lookup

@@ -1,41 +1,52 @@
-import { syncReceiptToFirestore } from './firestore';
+import { getFirestore, collection, onSnapshot } from '@react-native-firebase/firestore';
+import { syncReceiptToFirestore, restoreFromFirestore } from './firestore';
 import {
   getDb,
+  getUnsyncedReceipts,
+  markReceiptSynced,
   getFailedSyncs,
   deleteFailedSync,
   incrementFailedSyncAttempt,
+  insertFailedSync,
 } from './db';
 
-const MAX_ATTEMPTS = 5;
-export { MAX_ATTEMPTS };
+export const MAX_ATTEMPTS = 5;
 
-/**
- * Retry all entries in the failed_syncs queue for the given user.
- * Returns { succeeded, failed }.
- */
+// ─── Push local unsynced receipts → Firestore ─────────────────────────────────
+
+const syncLocalToCloud = async (uid) => {
+  const unsynced = await getUnsyncedReceipts();
+  for (const receipt of unsynced) {
+    // Skip soft-deleted receipts that already have a firestore_id — handled by softDelete call
+    try {
+      await syncReceiptToFirestore(uid, receipt);
+      await markReceiptSynced(receipt.id, receipt.firestore_id || String(receipt.id));
+    } catch (e) {
+      await insertFailedSync(receipt.id, e.message, 'push');
+    }
+  }
+};
+
+// ─── Retry items in failed_syncs queue ────────────────────────────────────────
+
 export const retryFailedSyncs = async (uid) => {
   const items = await getFailedSyncs();
   let succeeded = 0;
-  let failed    = 0;
+  let failed = 0;
 
   for (const item of items) {
     if (item.attempt_count >= MAX_ATTEMPTS) { failed++; continue; }
 
     try {
-      // Re-fetch the receipt row to get current data
       const database = await getDb();
-      const receipt  = await database.getFirstAsync(
+      const receipt = await database.getFirstAsync(
         'SELECT * FROM receipts WHERE id = ?',
         [item.receipt_id]
       );
       if (!receipt) { await deleteFailedSync(item.id); continue; }
 
       await syncReceiptToFirestore(uid, receipt);
-      // Mark local receipt as synced
-      await database.runAsync(
-        'UPDATE receipts SET synced = 1 WHERE id = ?',
-        [receipt.id]
-      );
+      await database.runAsync('UPDATE receipts SET synced = 1 WHERE id = ?', [receipt.id]);
       await deleteFailedSync(item.id);
       succeeded++;
     } catch (e) {
@@ -48,12 +59,11 @@ export const retryFailedSyncs = async (uid) => {
   return { succeeded, failed };
 };
 
-/**
- * Retry a single failed_sync entry.
- */
+// ─── Retry a single failed_sync entry ─────────────────────────────────────────
+
 export const retryOne = async (failedSyncId, uid) => {
   const database = await getDb();
-  const item     = await database.getFirstAsync(
+  const item = await database.getFirstAsync(
     'SELECT * FROM failed_syncs WHERE id = ?',
     [failedSyncId]
   );
@@ -67,10 +77,7 @@ export const retryOne = async (failedSyncId, uid) => {
     if (!receipt) { await deleteFailedSync(item.id); return; }
 
     await syncReceiptToFirestore(uid, receipt);
-    await database.runAsync(
-      'UPDATE receipts SET synced = 1 WHERE id = ?',
-      [receipt.id]
-    );
+    await database.runAsync('UPDATE receipts SET synced = 1 WHERE id = ?', [receipt.id]);
     await deleteFailedSync(item.id);
   } catch (e) {
     console.error('Single sync retry failed for failedSyncId', failedSyncId, ':', e.message);
@@ -78,22 +85,25 @@ export const retryOne = async (failedSyncId, uid) => {
     throw e;
   }
 };
-import {
-  syncLocalChangesToFirestore,
-  syncCloudChangesToLocal,
-  retryFailedSyncs,
-  listenToCloudReceipts,
-} from './syncService';
+
+// ─── Real-time cloud listener ──────────────────────────────────────────────────
+
+const listenToCloudReceipts = (uid, onChange) => {
+  const db = getFirestore();
+  return onSnapshot(collection(db, 'users', uid, 'receipts'), onChange);
+};
+
+// ─── SyncManager class ────────────────────────────────────────────────────────
 
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 export class SyncManager {
   constructor(user, onStatusChange) {
-    this.user             = user;
-    this.onStatusChange   = onStatusChange || (() => {});
-    this.isSyncing        = false;
-    this.lastSyncTime     = null;
-    this._intervalId      = null;
+    this.user                 = user;
+    this.onStatusChange       = onStatusChange || (() => {});
+    this.isSyncing            = false;
+    this.lastSyncTime         = null;
+    this._intervalId          = null;
     this._unsubscribeListener = null;
   }
 
@@ -103,9 +113,10 @@ export class SyncManager {
     this.onStatusChange('syncing');
 
     try {
-      await syncLocalChangesToFirestore(this.user);
-      await syncCloudChangesToLocal(this.user);
-      await retryFailedSyncs(this.user);
+      const uid = this.user.uid;
+      await syncLocalToCloud(uid);
+      await restoreFromFirestore(uid);
+      await retryFailedSyncs(uid);
       this.lastSyncTime = new Date();
       this.onStatusChange('synced');
     } catch (e) {
@@ -131,11 +142,8 @@ export class SyncManager {
   startListening() {
     this.stopListening();
     this._unsubscribeListener = listenToCloudReceipts(
-      this.user,
-      async () => {
-        // A cloud change was detected — run a full sync to apply it locally
-        await this.performSync();
-      }
+      this.user.uid,
+      () => this.performSync()
     );
   }
 

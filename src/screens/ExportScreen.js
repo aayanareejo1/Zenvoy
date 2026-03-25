@@ -12,6 +12,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { getReadyReceipts } from '../services/db';
 import { shareReceipts } from '../services/exportService';
+import { trackEvent, Events } from '../services/eventTracker';
 import { useToast } from '../context/ToastContext';
 import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, CATEGORIES, getCategoryInfo } from '../constants/theme';
 
@@ -84,6 +85,7 @@ export default function ExportScreen() {
     }
 
     setIsExporting(true);
+    trackEvent(Events.EXPORT_TRIGGERED, { format, count: toExport.length });
     try {
       await shareReceipts(toExport, format);
       showToast({
