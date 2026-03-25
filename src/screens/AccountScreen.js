@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
-import { signInWithGoogle, signOut } from '../services/auth';
+import { signOut } from '../services/auth';
 import { restoreFromFirestore } from '../services/firestore';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import Dialog from '../components/Dialog';
-import Sheet, { SheetOption } from '../components/Sheet';
 import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE } from '../constants/theme';
 import { trackEvent, Events } from '../services/eventTracker';
 import { FREE_MONTHLY_LIMIT } from '../constants/config';
@@ -14,18 +13,9 @@ export default function AccountScreen({ navigation }) {
   const { user, isPro, refreshInboxCount } = useApp();
   const { showToast }                      = useToast();
 
-  const [upgradeSheet, setUpgradeSheet]   = useState(false);
   const [signOutDialog, setSignOutDialog] = useState(false);
   const [restoreDialog, setRestoreDialog] = useState(false);
   const [restoring, setRestoring]         = useState(false);
-
-  const handleGoogleSignIn = async () => {
-    try {
-      await signInWithGoogle();
-      trackEvent(Events.SIGN_IN, { method: 'google' });
-    }
-    catch (e) { showToast({ message: e.message, type: 'error' }); }
-  };
 
   const confirmSignOut = async () => {
     setSignOutDialog(false);
@@ -81,18 +71,10 @@ export default function AccountScreen({ navigation }) {
         </View>
 
         <View style={[styles.glowWrap, { width: '100%' }]}>
-          <TouchableOpacity style={styles.googleBtn} onPress={handleGoogleSignIn} activeOpacity={0.9}>
-            <Text style={styles.googleBtnTxt}>Sign in with Google</Text>
+          <TouchableOpacity style={styles.googleBtn} onPress={() => navigation.navigate('Auth')} activeOpacity={0.9}>
+            <Text style={styles.googleBtnTxt}>Sign In</Text>
           </TouchableOpacity>
         </View>
-
-        <TouchableOpacity
-          style={styles.appleBtn}
-          onPress={() => showToast({ message: 'Apple Sign-In coming soon', type: 'info' })}
-          activeOpacity={0.75}
-        >
-          <Text style={styles.appleBtnTxt}>🍎  Sign in with Apple</Text>
-        </TouchableOpacity>
       </View>
     );
   }
@@ -125,41 +107,6 @@ export default function AccountScreen({ navigation }) {
         onCancel={() => setRestoreDialog(false)}
       />
 
-      {/* Upgrade Sheet */}
-      <Sheet visible={upgradeSheet} onClose={() => setUpgradeSheet(false)} title="Upgrade to Pro">
-        <Text style={sheet.desc}>
-          Unlimited scans, cloud backup, and restore on any device.
-        </Text>
-
-        {[
-          { label: 'Monthly', price: '$9.99 / month', id: 'monthly' },
-          { label: 'Yearly',  price: '$49.99 / year · 50% off', id: 'yearly'  },
-        ].map(plan => (
-          <TouchableOpacity
-            key={plan.id}
-            style={sheet.planRow}
-            onPress={() => showToast({ message: 'In-app purchases coming soon', type: 'info' })}
-            activeOpacity={0.75}
-          >
-            <View>
-              <Text style={sheet.planLabel}>{plan.label}</Text>
-              <Text style={sheet.planPrice}>{plan.price}</Text>
-            </View>
-            <Text style={sheet.planChevron}>›</Text>
-          </TouchableOpacity>
-        ))}
-
-        <View style={sheet.glowWrap}>
-          <TouchableOpacity
-            style={sheet.ctaBtn}
-            onPress={() => showToast({ message: 'In-app purchases coming soon', type: 'info' })}
-            activeOpacity={0.9}
-          >
-            <Text style={sheet.ctaTxt}>Get Pro</Text>
-          </TouchableOpacity>
-        </View>
-      </Sheet>
-
       {/* Avatar */}
       <View style={styles.avatarSection}>
         <View style={styles.avatar}>
@@ -185,7 +132,7 @@ export default function AccountScreen({ navigation }) {
       {/* Upgrade CTA */}
       {!isPro && (
         <View style={styles.glowWrap}>
-          <TouchableOpacity style={styles.upgradeBtn} onPress={() => setUpgradeSheet(true)} activeOpacity={0.9}>
+          <TouchableOpacity style={styles.upgradeBtn} onPress={() => navigation.navigate('Paywall')} activeOpacity={0.9}>
             <Text style={styles.upgradeTxt}>Upgrade to Pro</Text>
           </TouchableOpacity>
         </View>
@@ -273,19 +220,6 @@ const styles = StyleSheet.create({
   },
   googleBtnTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
 
-  appleBtn: {
-    backgroundColor: COLORS.card,
-    height:          BTN_HEIGHT,
-    paddingHorizontal: SPACE.xxxl,
-    borderRadius:    RADIUS.button,
-    justifyContent:  'center',
-    alignItems:      'center',
-    width:           '100%',
-    borderWidth:     1,
-    borderColor:     COLORS.border,
-  },
-  appleBtnTxt: { fontSize: 16, fontWeight: '600', color: COLORS.textPrimary },
-
   // ── Signed-in
   avatarSection: { alignItems: 'center', marginTop: SPACE.xxl, marginBottom: SPACE.xl, gap: SPACE.sm },
   avatar: {
@@ -362,42 +296,4 @@ const styles = StyleSheet.create({
     marginTop:       SPACE.xs,
   },
   signOutTxt: { fontSize: 15, color: COLORS.danger, fontWeight: '500' },
-});
-
-const sheet = StyleSheet.create({
-  desc: {
-    fontSize:   14,
-    color:      COLORS.textSecondary,
-    textAlign:  'center',
-    lineHeight: 20,
-    marginBottom: SPACE.lg,
-  },
-  planRow: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    justifyContent:  'space-between',
-    backgroundColor: COLORS.cardAlt,
-    borderRadius:    RADIUS.md,
-    padding:         SPACE.lg,
-    marginBottom:    SPACE.sm,
-    borderWidth:     1,
-    borderColor:     COLORS.border,
-  },
-  planLabel: { fontSize: 16, fontWeight: '600', color: COLORS.textPrimary, marginBottom: 2 },
-  planPrice: { fontSize: 13, color: COLORS.accent, fontWeight: '500' },
-  planChevron: { fontSize: 22, color: COLORS.textTertiary },
-  glowWrap: {
-    width:        '100%',
-    borderRadius: RADIUS.button,
-    marginTop:    SPACE.sm,
-    ...ELEVATION.glow,
-  },
-  ctaBtn: {
-    backgroundColor: COLORS.accent,
-    height:          BTN_HEIGHT,
-    borderRadius:    RADIUS.button,
-    justifyContent:  'center',
-    alignItems:      'center',
-  },
-  ctaTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
 });

@@ -22,10 +22,12 @@ import ExportScreen           from './src/screens/ExportScreen';
 import InboxScreen            from './src/screens/InboxScreen';
 import ReportsScreen          from './src/screens/ReportsScreen';
 import AccountScreen          from './src/screens/AccountScreen';
+import AuthScreen             from './src/screens/AuthScreen';
 import SyncManagementScreen   from './src/screens/SyncManagementScreen';
 import AnalyticsScreen        from './src/screens/AnalyticsScreen';
 import SearchScreen           from './src/screens/SearchScreen';
 import OnboardingScreen, { ONBOARDING_KEY } from './src/screens/OnboardingScreen';
+import PaywallScreen from './src/screens/PaywallScreen';
 import { COLORS }          from './src/constants/theme';
 
 const Tab           = createBottomTabNavigator();
@@ -80,6 +82,7 @@ function AccountStackNav() {
         component={AccountScreen}
         options={{ title: 'Account', headerRight: () => <SyncStatusBadge /> }}
       />
+      <AccountStack.Screen name="Auth"           component={AuthScreen}           options={{ title: 'Sign In' }} />
       <AccountStack.Screen name="SyncManagement" component={SyncManagementScreen} options={{ title: 'Sync Issues' }} />
     </AccountStack.Navigator>
   );
@@ -144,6 +147,11 @@ function MainNav() {
         <RootStack.Screen name="Onboarding" component={OnboardingScreen} />
       )}
       <RootStack.Screen name="Main" component={Tabs} />
+      <RootStack.Screen
+        name="Paywall"
+        component={PaywallScreen}
+        options={{ presentation: 'modal', headerShown: false }}
+      />
     </RootStack.Navigator>
   );
 }

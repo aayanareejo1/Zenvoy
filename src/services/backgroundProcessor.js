@@ -1,5 +1,7 @@
-import * as BackgroundFetch from 'expo-background-fetch';
-import * as TaskManager from 'expo-task-manager';
+// expo-background-fetch and expo-task-manager are temporarily removed due to
+// a Kotlin 2.2 compilation conflict. Re-add them once Expo resolves support.
+// import * as BackgroundFetch from 'expo-background-fetch';
+// import * as TaskManager from 'expo-task-manager';
 import { preprocessImage, isTooLarge } from './imageProcessor';
 import { parseReceiptWithVision } from './claude';
 import { updateReceiptFromScan } from './db';
@@ -79,52 +81,9 @@ export const handleQueueError = async (queueId, error, retryCount) => {
 };
 
 // ---------------------------------------------------------------------------
-// Background task definition — must be defined at module load time
+// Registration helpers — stubbed until expo-task-manager is restored
 // ---------------------------------------------------------------------------
 
-TaskManager.defineTask(TASK_NAME, async () => {
-  try {
-    const items = await getRetryableItems();
-    if (items.length === 0) {
-      return BackgroundFetch.BackgroundFetchResult.NoData;
-    }
-
-    for (const item of items) {
-      if (item.retry_count >= MAX_RETRIES) continue;
-      await processQueueItem(item);
-    }
-
-    return BackgroundFetch.BackgroundFetchResult.NewData;
-  } catch {
-    return BackgroundFetch.BackgroundFetchResult.Failed;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Registration helpers
-// ---------------------------------------------------------------------------
-
-/** Register the background fetch task to run every 15 minutes. */
-export const registerBackgroundTask = async () => {
-  try {
-    await BackgroundFetch.registerTaskAsync(TASK_NAME, {
-      minimumInterval: 15 * 60, // 15 minutes in seconds
-      stopOnTerminate: false,
-      startOnBoot:     true,
-    });
-  } catch (e) {
-    // Task may already be registered; ignore duplicate-registration errors
-    if (!e.message?.includes('already')) {
-      console.warn('[BackgroundProcessor] registerBackgroundTask error:', e.message);
-    }
-  }
-};
-
-/** Unregister the background fetch task (e.g. on cleanup / logout). */
-export const unregisterBackgroundTask = async () => {
-  try {
-    await BackgroundFetch.unregisterTaskAsync(TASK_NAME);
-  } catch {
-    // Ignore if not registered
-  }
-};
+/** @todo Restore when expo-task-manager supports Kotlin 2.2. */
+export const registerBackgroundTask   = async () => {};
+export const unregisterBackgroundTask = async () => {};

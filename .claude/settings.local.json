@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh repo:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh issue:*)",
+      "Bash(grep -r \"getAllQueueEntries\\\\|getQueueEntryById\\\\|getUnsynced\\\\|insertReceiptFromCloud\\\\|updateReceiptFromCloud\\\\|updateFailedSyncAttempt\" /c/projects/zenvoy/src --include=*.js)",
+      "Bash(git fetch:*)",
+      "Bash(head -15 echo \"---\" grep -n \"export\\\\|Export\\\\|handleExport\" /c/projects/zenvoy/src/screens/ExportScreen.js)",
+      "Bash(head -10 echo \"---\" grep -n \"sync\\\\|Sync\\\\|triggerSync\" /c/projects/zenvoy/src/screens/AccountScreen.js)",
+      "Bash(head -20 echo \"---\" grep -n \"markDone\\\\|setItem\\\\|ONBOARDING\" /c/projects/zenvoy/src/screens/OnboardingScreen.js)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:hyochan.github.io)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:www.bgamble.dev)",
+      "Bash(grep:*)"
+    ]
+  }
+}
