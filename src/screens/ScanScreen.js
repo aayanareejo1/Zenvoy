@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
-  Animated, ActivityIndicator, ScrollView, StyleSheet,
+  Animated, ActivityIndicator, Easing, ScrollView, StyleSheet,
   Text, TouchableOpacity, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -27,6 +27,13 @@ const checkScanLimit = async (isPro) => {
   const count = await getMonthlyCount();
   return count < FREE_MONTHLY_LIMIT;
 };
+
+// ─── Mount-animation helper ────────────────────────────────────────────────────
+
+const slideIn = (anim) => ({
+  opacity: anim,
+  transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }],
+});
 
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 
@@ -111,30 +118,48 @@ export default function ScanScreen({ navigation }) {
   const [notes,   setNotes]     = useState([]);
   const [lastReceipt, setLastReceipt] = useState(null);
 
-  // Sheets
-  const [tooLargeSheet, setTooLargeSheet] = useState(false);
-  const [paywallSheet,  setPaywallSheet]  = useState(false);
-  const [multiSheet,    setMultiSheet]    = useState(false);
-  const [againSheet,    setAgainSheet]    = useState(false);
-  const againResolveRef = useRef(null);
+  // Scan count for free-tier badge
+  const [monthCount, setMonthCount] = useState(0);
+  useEffect(() => {
+    if (!isPro) getMonthlyCount().then(setMonthCount).catch(() => setMonthCount(0));
+  }, [result, isPro]);
 
   // Load most recent receipt for the bottom card (refreshes after save/discard)
   useEffect(() => {
     getLatestReceipt().then(setLastReceipt).catch(() => setLastReceipt(null));
   }, [result]);
 
+  // ── Mount animation ───────────────────────────────────────────────────────
+
+  const mountAnim0 = useRef(new Animated.Value(0)).current;
+  const mountAnim1 = useRef(new Animated.Value(0)).current;
+  const mountAnim2 = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.stagger(80, [
+      Animated.timing(mountAnim0, { toValue: 1, duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(mountAnim1, { toValue: 1, duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(mountAnim2, { toValue: 1, duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]).start();
+  }, []);
+
+  // Sheets
+  const [tooLargeSheet, setTooLargeSheet] = useState(false);
+  const [multiSheet,    setMultiSheet]    = useState(false);
+  const [againSheet,    setAgainSheet]    = useState(false);
+  const againResolveRef = useRef(null);
+
   // ── Paywall ──────────────────────────────────────────────────────────────
 
-  const gateScan = async () => {
+  const gateScan = async (onSuccess) => {
     const allowed = await checkScanLimit(isPro);
-    if (!allowed) { setPaywallSheet(true); return false; }
+    if (!allowed) { navigation.navigate('Paywall', { onSuccess }); return false; }
     return true;
   };
 
   // ── Single scan ──────────────────────────────────────────────────────────
 
   const pickSingle = async (source) => {
-    if (!(await gateScan())) return;
+    if (!(await gateScan(() => pickSingle(source)))) return;
     const opts = { mediaTypes: ['images'], quality: 1, allowsEditing: true };
     let picked;
     try {
@@ -184,7 +209,7 @@ export default function ScanScreen({ navigation }) {
   // ── Multi scan ───────────────────────────────────────────────────────────
 
   const handleMultiScan = async () => {
-    if (!(await gateScan())) return;
+    if (!(await gateScan(() => handleMultiScan()))) return;
     setMultiSheet(true);
   };
 
@@ -223,7 +248,7 @@ export default function ScanScreen({ navigation }) {
 
     const count     = await getMonthlyCount();
     const remaining = isPro ? Infinity : FREE_MONTHLY_LIMIT - count;
-    if (remaining <= 0) { setPaywallSheet(true); return; }
+    if (remaining <= 0) { navigation.navigate('Paywall', { onSuccess: () => doMultiScan(source) }); return; }
 
     const toProcess = isPro ? assets : assets.slice(0, remaining);
     if (toProcess.length < assets.length) {
@@ -302,20 +327,6 @@ export default function ScanScreen({ navigation }) {
         </Text>
         <SheetOption icon="📷" label="Try Again"      onPress={() => { setTooLargeSheet(false); pickSingle('camera'); }} />
         <SheetOption icon="✏️" label="Enter Manually" onPress={() => { setTooLargeSheet(false); setResult({ photo_uri: null }); }} last />
-      </Sheet>
-
-      <Sheet visible={paywallSheet} onClose={() => setPaywallSheet(false)} title="Monthly Limit Reached">
-        <Text style={s.sheetBody}>
-          Free accounts get {FREE_MONTHLY_LIMIT} scans per month.{'\n'}Upgrade to Pro for unlimited scans and cloud backup.
-        </Text>
-        <View style={s.sheetGlow}>
-          <TouchableOpacity style={s.sheetPrimaryBtn} onPress={() => { setPaywallSheet(false); navigation.navigate('Account'); }} activeOpacity={0.9}>
-            <Text style={s.sheetPrimaryTxt}>Upgrade to Pro</Text>
-          </TouchableOpacity>
-        </View>
-        <TouchableOpacity style={s.sheetGhostBtn} onPress={() => setPaywallSheet(false)} activeOpacity={0.7}>
-          <Text style={s.sheetGhostTxt}>Maybe later</Text>
-        </TouchableOpacity>
       </Sheet>
 
       <Sheet visible={multiSheet} onClose={() => setMultiSheet(false)} title="Multi Scan">
@@ -459,6 +470,9 @@ export default function ScanScreen({ navigation }) {
 
   // ── Render: Idle ──────────────────────────────────────────────────────────
 
+  const filledDots = Math.min(monthCount, 5);
+  const avatarLetter = user?.email?.[0]?.toUpperCase() ?? 'A';
+
   return (
     <View style={s.screen}>
       {Sheets}
@@ -468,7 +482,9 @@ export default function ScanScreen({ navigation }) {
       <View style={s.bgNoise} pointerEvents="none" />
 
       {/* Header — fixed above scroll */}
-      <ScreenHeader title="Zenvoy" subtitle="Receipts, organized." />
+      <Animated.View style={slideIn(mountAnim0)}>
+        <ScreenHeader title="Zenvoy" subtitle="Good morning" avatarLetter={avatarLetter} />
+      </Animated.View>
 
       {/* Content — scrollable for small screens */}
       <ScrollView
@@ -478,38 +494,54 @@ export default function ScanScreen({ navigation }) {
         keyboardShouldPersistTaps="handled"
       >
         {/* Hero card */}
-        <View style={s.heroCard}>
-          <View style={s.heroCardTopLine} />
-          <View style={s.heroIconWrap}>
-            <ReceiptIconGraphic />
+        <Animated.View style={slideIn(mountAnim1)}>
+          <View style={s.heroCard}>
+            <View style={s.heroCardTopLine} />
+            <View style={s.heroIconWrap}>
+              <View style={s.heroIconGlow} />
+              <ReceiptIconGraphic />
+            </View>
+            <Text style={s.heroCardTitle}>Scan a receipt</Text>
+            <Text style={s.heroCardBody}>
+              Point at any receipt for instant data extraction.
+            </Text>
           </View>
-          <Text style={s.heroCardTitle}>Scan a receipt</Text>
-          <Text style={s.heroCardBody}>
-            Point at any receipt for instant data extraction.
-          </Text>
-        </View>
+        </Animated.View>
 
         {/* Actions module */}
-        <View style={s.actionsCard}>
-          <PrimaryCtaButton onPress={() => pickSingle('camera')} />
+        <Animated.View style={slideIn(mountAnim2)}>
+          <View style={s.actionsCard}>
+            <PrimaryCtaButton onPress={() => pickSingle('camera')} />
 
-          <View style={s.actionsCardDivider} />
+            {!isPro && (
+              <View style={s.scanLimitRow}>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <View key={i} style={[s.scanDot, i < filledDots && s.scanDotFilled]} />
+                ))}
+                <Text style={s.scanCountLabel}>
+                  {Math.max(0, FREE_MONTHLY_LIMIT - monthCount)} scan{Math.max(0, FREE_MONTHLY_LIMIT - monthCount) !== 1 ? 's' : ''} left
+                </Text>
+              </View>
+            )}
 
-          {/* Secondary: Import from Photos */}
-          <TouchableOpacity style={s.importRow} onPress={() => pickSingle('gallery')} activeOpacity={0.7}>
-            <View style={s.importIconDot}>
-              <Text style={s.importIconChar}>↑</Text>
-            </View>
-            <Text style={s.importRowLabel}>Import from Photos</Text>
-          </TouchableOpacity>
+            <View style={s.actionsCardDivider} />
 
-          {/* Tertiary: Batch scan — left-aligned footer action */}
-          <TouchableOpacity onPress={handleMultiScan} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={s.tertiaryLink}>Batch scan  ›</Text>
-          </TouchableOpacity>
-        </View>
+            {/* Secondary: Import from Photos */}
+            <TouchableOpacity style={s.importRow} onPress={() => pickSingle('gallery')} activeOpacity={0.7}>
+              <View style={s.importIconDot}>
+                <Text style={s.importIconChar}>↑</Text>
+              </View>
+              <Text style={s.importRowLabel}>Import from Photos</Text>
+            </TouchableOpacity>
 
-        {/* Recent receipt or tip */}
+            {/* Tertiary: Batch scan — left-aligned footer action */}
+            <TouchableOpacity onPress={handleMultiScan} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Text style={s.tertiaryLink}>Batch scan  ›</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+
+        {/* Recent receipt or empty state */}
         {lastReceipt ? (
           <TouchableOpacity style={s.lastScanCard} onPress={() => navigation.navigate('Receipts')} activeOpacity={0.8}>
             <View style={s.lastScanLeft}>
@@ -524,11 +556,10 @@ export default function ScanScreen({ navigation }) {
             </View>
           </TouchableOpacity>
         ) : (
-          <View style={s.tipCard}>
-            <View style={s.tipBubble}>
-              <Text style={s.tipBubbleTxt}>i</Text>
-            </View>
-            <Text style={s.tipText}>Crop tight to the receipt for best results</Text>
+          <View style={s.noScansYet}>
+            <Text style={s.noScansYetIcon}>🧾</Text>
+            <Text style={s.noScansYetTitle}>No scans yet</Text>
+            <Text style={s.noScansYetSub}>Your scanned receipts will appear here</Text>
           </View>
         )}
       </ScrollView>
@@ -538,11 +569,18 @@ export default function ScanScreen({ navigation }) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function ScreenHeader({ title, subtitle }) {
+function ScreenHeader({ title, subtitle, avatarLetter }) {
   return (
     <View style={s.header}>
-      <Text style={s.headerTitle}>{title}</Text>
-      <Text style={s.headerSubtitle}>{subtitle}</Text>
+      <View>
+        <Text style={s.headerTitle}>{title}</Text>
+        <Text style={s.headerSubtitle}>{subtitle}</Text>
+      </View>
+      {avatarLetter ? (
+        <View style={s.headerAvatar}>
+          <Text style={s.headerAvatarTxt}>{avatarLetter}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -575,6 +613,9 @@ const s = StyleSheet.create({
 
   // ── Header
   header: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'space-between',
     paddingHorizontal: H_PAD,
     paddingTop:        SPACE.xl,
     paddingBottom:     SPACE.md,
@@ -591,6 +632,21 @@ const s = StyleSheet.create({
     marginTop:  2,
     fontWeight: '400',
   },
+  headerAvatar: {
+    width:           34,
+    height:          34,
+    borderRadius:    17,
+    backgroundColor: COLORS.accentMuted,
+    borderWidth:     1,
+    borderColor:     COLORS.accent,
+    justifyContent:  'center',
+    alignItems:      'center',
+  },
+  headerAvatarTxt: {
+    fontSize:   14,
+    fontWeight: '600',
+    color:      COLORS.accent,
+  },
 
   // ── Idle background layers (absolute, behind everything)
   bgGlow: {
@@ -600,7 +656,7 @@ const s = StyleSheet.create({
     right:           -100,
     height:          260,
     borderRadius:    130,
-    backgroundColor: COLORS.accentMuted,   // rgba(0,196,160,0.09)
+    backgroundColor: COLORS.accentMuted,
     opacity:         0.07,
   },
   bgNoise: {
@@ -636,16 +692,14 @@ const s = StyleSheet.create({
 
   // ── Hero card — shared across idle / processing / error
   heroCard: {
-    backgroundColor:  COLORS.card,
-    borderRadius:     RADIUS.xl,
-    borderWidth:      StyleSheet.hairlineWidth,
-    borderColor:      COLORS.accent + '18',
-    paddingTop:       SPACE.xxl,
-    paddingBottom:    SPACE.xl,
-    paddingHorizontal: SPACE.xxxl,
-    alignItems:       'center',
-    gap:              SPACE.sm,
-    overflow:         'hidden',       // contains absolute heroCardTopLine
+    backgroundColor:   COLORS.card,
+    borderRadius:      20,
+    borderWidth:       1,
+    borderColor:       COLORS.border,
+    padding:           24,
+    alignItems:        'center',
+    gap:               SPACE.sm,
+    overflow:          'hidden',
     ...ELEVATION.card,
   },
 
@@ -659,7 +713,20 @@ const s = StyleSheet.create({
     backgroundColor: '#FFFFFF14',
   },
 
-  heroIconWrap: { marginBottom: SPACE.md },
+  heroIconWrap: {
+    marginBottom:   SPACE.md,
+    width:          80,
+    height:         80,
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  heroIconGlow: {
+    position:        'absolute',
+    width:           80,
+    height:          80,
+    borderRadius:    40,
+    backgroundColor: COLORS.accentGlow,
+  },
 
   // Receipt graphic
   receiptOuter: {
@@ -715,7 +782,30 @@ const s = StyleSheet.create({
   actionsCardDivider: {
     height:           StyleSheet.hairlineWidth,
     backgroundColor:  COLORS.border,
-    marginHorizontal: -SPACE.lg,  // bleed to card edges
+    marginHorizontal: -SPACE.lg,
+  },
+
+  // ── Scan limit indicator
+  scanLimitRow: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'center',
+    gap:            SPACE.xs,
+  },
+  scanDot: {
+    width:           7,
+    height:          7,
+    borderRadius:    4,
+    backgroundColor: COLORS.cardAlt,
+  },
+  scanDotFilled: {
+    backgroundColor: COLORS.accent,
+  },
+  scanCountLabel: {
+    fontSize:   12,
+    color:      COLORS.textSecondary,
+    fontWeight: '500',
+    marginLeft: SPACE.xs,
   },
 
   // ── Primary CTA
@@ -820,41 +910,15 @@ const s = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ── Tip card (no receipts yet)
-  tipCard: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    backgroundColor: COLORS.card,
-    borderRadius:    RADIUS.md,
-    borderWidth:     StyleSheet.hairlineWidth,
-    borderColor:     COLORS.border,
-    paddingVertical:   SPACE.md,
-    paddingHorizontal: SPACE.md,
-    gap:             SPACE.sm,
+  // ── No scans yet (empty state — idle, no lastReceipt)
+  noScansYet: {
+    alignItems:     'center',
+    paddingVertical: SPACE.xl,
+    gap:            SPACE.xs,
   },
-  tipBubble: {
-    width:           22,
-    height:          22,
-    borderRadius:    11,
-    backgroundColor: COLORS.cardAlt,
-    borderWidth:     1,
-    borderColor:     COLORS.border,
-    justifyContent:  'center',
-    alignItems:      'center',
-  },
-  tipBubbleTxt: {
-    fontSize:   11,
-    fontWeight: '700',
-    color:      COLORS.textTertiary,
-    lineHeight: 14,
-  },
-  tipText: {
-    flex:       1,
-    fontSize:   13,
-    color:      COLORS.textSecondary,
-    lineHeight: 18,
-    fontWeight: '400',
-  },
+  noScansYetIcon:  { fontSize: 48 },
+  noScansYetTitle: { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary },
+  noScansYetSub:   { fontSize: 13, color: COLORS.textSecondary, marginTop: 8 },
 
   // ── Processing state
   processingSpinnerWrap: {

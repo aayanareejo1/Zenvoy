@@ -9,9 +9,10 @@
     ],
     "android": {
       "package": "com.aareejo.zenvoy",
-      "googleServicesFile": "./android/app/google-services.json"
+      "googleServicesFile": "./google-services.json"
     },
     "plugins": [
+      "./plugins/withIAPFlavor",
       [
         "expo-image-picker",
         {
