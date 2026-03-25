@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Animated, ActivityIndicator, ScrollView, StyleSheet,
   Text, TouchableOpacity, View,
@@ -10,6 +10,7 @@ import { preprocessImage, isTooLarge } from '../services/imageProcessor';
 import { insertReceipt, getLatestReceipt, getMonthlyCount, deriveStatus } from '../services/db';
 import { createQueueEntry } from '../services/queueService';
 import { syncReceiptToFirestore }      from '../services/firestore';
+import { trackEvent, Events }          from '../services/eventTracker';
 import { useApp }                      from '../context/AppContext';
 import { useToast }                    from '../context/ToastContext';
 import Sheet, { SheetOption }          from '../components/Sheet';
@@ -232,6 +233,7 @@ export default function ScanScreen({ navigation }) {
       });
     }
 
+    trackEvent(Events.SCAN_STARTED, { count: toProcess.length, isPro });
     setLoading(true);
     const now = new Date().toISOString();
     const queueItems = [];
@@ -245,6 +247,7 @@ export default function ScanScreen({ navigation }) {
       });
       const queueId = await createQueueEntry(receiptId, asset.uri);
       queueItems.push({ queueId, receiptId, photoUri: asset.uri });
+      trackEvent(Events.RECEIPT_QUEUED, { receiptId });
     }
     setLoading(false);
     navigation.navigate('Processing', { queueItems });
@@ -252,7 +255,7 @@ export default function ScanScreen({ navigation }) {
 
   // ── Save ─────────────────────────────────────────────────────────────────
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const now = new Date().toISOString();
     const receipt = {
@@ -269,6 +272,7 @@ export default function ScanScreen({ navigation }) {
     const newId = await insertReceipt(receipt);
     receipt.id = newId;
     if (isPro && user) await syncReceiptToFirestore(user.uid, receipt);
+    trackEvent(Events.RECEIPT_SAVED, { status: receipt.status, category: receipt.category, total: receipt.total });
     setResult(null);
 
     if (receipt.status === 'needs_review') {
@@ -286,7 +290,7 @@ export default function ScanScreen({ navigation }) {
         action: { label: 'View', onPress: () => navigation.navigate('Receipts') },
       });
     }
-  };
+  }, [vendor, date, total, tax, category, notes, result, isPro, user, navigation, showToast]);
 
   // ── Shared sheets ─────────────────────────────────────────────────────────
 

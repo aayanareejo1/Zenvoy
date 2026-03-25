@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -12,6 +12,7 @@ import { SyncProvider }              from './src/context/SyncContext';
 import { ThemeProvider }             from './src/context/ThemeContext';
 import { ErrorProvider }             from './src/context/ErrorContext';
 import SyncStatusBadge               from './src/components/SyncStatusBadge';
+import OfflineBanner                 from './src/components/OfflineBanner';
 import ScanScreen             from './src/screens/ScanScreen';
 import ProcessingScreen       from './src/screens/ProcessingScreen';
 import ReceiptsScreen         from './src/screens/ReceiptsScreen';
@@ -156,7 +157,10 @@ export default function App() {
             <SyncProvider>
               <NavigationContainer>
                 <StatusBar style="light" />
-                <MainNav />
+                <View style={{ flex: 1 }}>
+                  <MainNav />
+                  <OfflineBanner />
+                </View>
               </NavigationContainer>
             </SyncProvider>
           </ErrorProvider>

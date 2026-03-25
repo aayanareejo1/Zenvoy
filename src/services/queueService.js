@@ -4,7 +4,7 @@ import {
   updateQueueEntry,
   incrementQueueRetryCount,
   getQueueEntryById,
-} from './db';
+} from './db'; // these are now all exported from db.js
 
 /** Insert a new queue entry for a receipt that needs processing. */
 export const createQueueEntry = async (receiptId, photoUri) => {

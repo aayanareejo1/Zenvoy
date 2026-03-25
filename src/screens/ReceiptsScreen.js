@@ -3,9 +3,8 @@ import { View, Text, SectionList, TouchableOpacity, TextInput, ScrollView, Style
 import { useFocusEffect } from '@react-navigation/native';
 import { getReadyReceipts, deleteReceipt } from '../services/db';
 import * as Haptics from 'expo-haptics';
-import Dialog          from '../components/Dialog';
-import ReceiptListItem from '../components/ReceiptListItem';
-import { COLORS, RADIUS, H_PAD, SPACE, CATEGORIES } from '../constants/theme';
+import Dialog from '../components/Dialog';
+import { COLORS, ELEVATION, RADIUS, H_PAD, SPACE, CATEGORIES, getCategoryInfo } from '../constants/theme';
 
 const ALL_KEY = 'All';
 
@@ -57,12 +56,30 @@ export default function ReceiptsScreen({ navigation }) {
   }, [receipts, search, activeCategory]);
 
   const renderItem = useCallback(({ item }) => {
+    const cat = getCategoryInfo(item.category);
     return (
-      <ReceiptListItem
-        item={item}
+      <TouchableOpacity
+        style={styles.row}
         onPress={() => navigation.navigate('ReceiptDetail', { receipt: item })}
-        onDelete={() => handleDelete(item.id)}
-      />
+        activeOpacity={0.75}
+      >
+        <View style={[styles.catDot, { backgroundColor: cat.color + '22', borderColor: cat.color + '55', borderWidth: 1 }]}>
+          <Text style={styles.catEmoji}>{cat.emoji}</Text>
+        </View>
+        <View style={styles.rowMiddle}>
+          <Text style={styles.vendor} numberOfLines={1}>{item.vendor || 'Unknown vendor'}</Text>
+          <Text style={styles.date}>{item.date || '—'}</Text>
+        </View>
+        <View style={styles.rowRight}>
+          <Text style={styles.total}>${parseFloat(item.total).toFixed(2)}</Text>
+          <TouchableOpacity
+            onPress={() => handleDelete(item.id)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={styles.deleteBtn}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
     );
   }, [navigation, handleDelete]);
 
@@ -150,6 +167,11 @@ export default function ReceiptsScreen({ navigation }) {
         }
         contentContainerStyle={{ paddingBottom: 28 }}
         stickySectionHeadersEnabled={false}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        updateCellsBatchingPeriod={50}
+        initialNumToRender={15}
+        windowSize={5}
       />
     </View>
   );
@@ -217,6 +239,33 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color:      COLORS.accent,
   },
+
+  // Row
+  row: {
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.card,
+    padding:         SPACE.md,
+    marginVertical:  3,
+    flexDirection:   'row',
+    alignItems:      'center',
+    borderWidth:     StyleSheet.hairlineWidth,
+    borderColor:     COLORS.border,
+    ...ELEVATION.card,
+  },
+  catDot: {
+    width: 42, height: 42,
+    borderRadius: RADIUS.md,
+    justifyContent: 'center',
+    alignItems:     'center',
+    marginRight:    SPACE.md,
+  },
+  catEmoji:  { fontSize: 19 },
+  rowMiddle: { flex: 1, marginRight: SPACE.sm },
+  vendor:    { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
+  date:      { fontSize: 12, color: COLORS.textSecondary, marginTop: 3 },
+  rowRight:  { alignItems: 'flex-end', gap: SPACE.sm },
+  total:     { fontSize: 15, fontWeight: '700', color: COLORS.accent },
+  deleteBtn: { fontSize: 13, color: COLORS.textTertiary, padding: 2 },
 
   // Empty state
   empty: { alignItems: 'center', marginTop: 80, gap: SPACE.sm },

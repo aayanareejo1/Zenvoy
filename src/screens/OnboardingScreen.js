@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACE, RADIUS, BTN_HEIGHT } from '../constants/theme';
+import { trackEvent, Events } from '../services/eventTracker';
 
 export const ONBOARDING_KEY = 'onboarding_complete';
 
@@ -64,6 +65,7 @@ export default function OnboardingScreen({ navigation }) {
 
   const finish = async () => {
     await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
+    trackEvent(Events.ONBOARDING_COMPLETED);
     navigation.replace('Main');
   };
 

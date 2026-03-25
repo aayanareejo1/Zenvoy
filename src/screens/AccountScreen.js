@@ -7,6 +7,7 @@ import { useToast } from '../context/ToastContext';
 import Dialog from '../components/Dialog';
 import Sheet, { SheetOption } from '../components/Sheet';
 import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE } from '../constants/theme';
+import { trackEvent, Events } from '../services/eventTracker';
 import { FREE_MONTHLY_LIMIT } from '../constants/config';
 
 export default function AccountScreen({ navigation }) {
@@ -19,12 +20,16 @@ export default function AccountScreen({ navigation }) {
   const [restoring, setRestoring]         = useState(false);
 
   const handleGoogleSignIn = async () => {
-    try { await signInWithGoogle(); }
+    try {
+      await signInWithGoogle();
+      trackEvent(Events.SIGN_IN, { method: 'google' });
+    }
     catch (e) { showToast({ message: e.message, type: 'error' }); }
   };
 
   const confirmSignOut = async () => {
     setSignOutDialog(false);
+    trackEvent(Events.SIGN_OUT);
     await signOut();
   };
 
@@ -33,6 +38,7 @@ export default function AccountScreen({ navigation }) {
     if (!user) { showToast({ message: 'Sign in to restore from cloud.', type: 'info' }); return; }
     if (!isPro) { showToast({ message: 'Cloud restore is a Pro feature.', type: 'info' }); return; }
     setRestoring(true);
+    trackEvent(Events.RESTORE_TRIGGERED);
     try {
       const { imported, skipped, failed } = await restoreFromFirestore(user.uid);
       await refreshInboxCount();

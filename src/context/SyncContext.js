@@ -1,35 +1,14 @@
-import React, { createContext, useContext, useState } from 'react';
-
-// syncStatus values: 'idle' | 'syncing' | 'synced' | 'error'
-const SyncContext = createContext({
-  syncStatus: 'idle',
-  syncError: null,
-  setSyncStatus: () => {},
-  setSyncError: () => {},
-});
-
-export const SyncProvider = ({ children }) => {
-  const [syncStatus, setSyncStatus] = useState('idle');
-  const [syncError, setSyncError]   = useState(null);
-
-  return (
-    <SyncContext.Provider value={{ syncStatus, syncError, setSyncStatus, setSyncError }}>
-      {children}
-    </SyncContext.Provider>
-  );
-};
-
-export const useSync = () => useContext(SyncContext);
-
-export default SyncContext;
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { useApp } from './AppContext';
 import { SyncManager } from '../services/syncManager';
+import networkService from '../services/networkService';
 
 export const SyncContext = createContext({
   syncStatus:   'idle',
   syncError:    null,
   lastSyncTime: null,
+  isOnline:     true,
   triggerSync:  () => {},
 });
 
@@ -38,39 +17,41 @@ export function SyncProvider({ children }) {
   const [syncStatus,   setSyncStatus]   = useState('idle');
   const [syncError,    setSyncError]    = useState(null);
   const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [isOnline,     setIsOnline]     = useState(networkService.isConnected);
   const managerRef = useRef(null);
 
+  // Track network state — auto-sync on reconnect
   useEffect(() => {
-    // Only sync when DB is ready, user is logged in, and has a Pro subscription
-    if (!dbReady || !user || !isPro) {
-      if (managerRef.current) {
-        managerRef.current.destroy();
-        managerRef.current = null;
+    const handler = (connected, reconnected) => {
+      setIsOnline(connected);
+      if (reconnected && managerRef.current) {
+        managerRef.current.performSync();
       }
+    };
+    networkService.addListener(handler);
+    return () => networkService.removeListener(handler);
+  }, []);
+
+  // Set up SyncManager when user / pro / db changes
+  useEffect(() => {
+    if (!dbReady || !user || !isPro) {
+      managerRef.current?.destroy();
+      managerRef.current = null;
       setSyncStatus('idle');
       return;
     }
 
     const handleStatusChange = (status) => {
       setSyncStatus(status);
-      if (status === 'error') {
-        setSyncError(new Date().toISOString());
-      } else {
-        setSyncError(null);
-      }
-      if (status === 'synced') {
-        setLastSyncTime(new Date().toISOString());
-      }
+      setSyncError(status === 'error' ? new Date().toISOString() : null);
+      if (status === 'synced') setLastSyncTime(new Date().toISOString());
     };
 
     const manager = new SyncManager(user, handleStatusChange);
     managerRef.current = manager;
 
-    // Initial sync on login / mount
     manager.performSync();
-    // Periodic background sync every 5 minutes
     manager.startPeriodicSync();
-    // Real-time listener for cloud changes
     manager.startListening();
 
     return () => {
@@ -79,12 +60,22 @@ export function SyncProvider({ children }) {
     };
   }, [user, isPro, dbReady]);
 
+  // Sync on foreground resume (only when online)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && managerRef.current && networkService.isConnected) {
+        managerRef.current.performSync();
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   const triggerSync = () => {
-    managerRef.current?.performSync();
+    if (networkService.isConnected) managerRef.current?.performSync();
   };
 
   return (
-    <SyncContext.Provider value={{ syncStatus, syncError, lastSyncTime, triggerSync }}>
+    <SyncContext.Provider value={{ syncStatus, syncError, lastSyncTime, isOnline, triggerSync }}>
       {children}
     </SyncContext.Provider>
   );

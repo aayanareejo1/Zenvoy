@@ -257,12 +257,19 @@ export const getUnsyncedReceipts = async () => {
   ));
 };
 
-export const markReceiptSynced = async (id, firestoreId) => {
+export const markReceiptSynced = async (id, firestoreId, version) => {
   const database = await getDb();
-  await database.runAsync(
-    'UPDATE receipts SET synced=1, firestore_id=COALESCE(?, firestore_id) WHERE id=?',
-    [firestoreId || null, id]
-  );
+  if (version != null) {
+    await database.runAsync(
+      'UPDATE receipts SET synced=1, firestore_id=COALESCE(?, firestore_id), version=? WHERE id=?',
+      [firestoreId || null, version, id]
+    );
+  } else {
+    await database.runAsync(
+      'UPDATE receipts SET synced=1, firestore_id=COALESCE(?, firestore_id) WHERE id=?',
+      [firestoreId || null, id]
+    );
+  }
 };
 
 // --- Queue helpers ---
@@ -326,4 +333,110 @@ export const incrementFailedSyncAttempt = async (id) => {
     'UPDATE failed_syncs SET attempt_count = attempt_count + 1, failed_at = ? WHERE id=?',
     [now, id]
   );
+};
+
+/** Set failed_syncs.attempt_count to a specific value (used by syncService retry loop). */
+export const updateFailedSyncAttempt = async (id, count) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    'UPDATE failed_syncs SET attempt_count = ?, failed_at = ? WHERE id=?',
+    [count, now, id]
+  );
+};
+
+// --- Cloud sync helpers ---
+
+/** Insert a receipt that arrived from Firestore; marks it as already synced. */
+export const insertReceiptFromCloud = async (receipt) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  const result = await database.runAsync(
+    `INSERT INTO receipts
+       (vendor, date, total, tax, category, status, notes, photo_uri,
+        created_at, updated_at, synced, version, device_id, firestore_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      receipt.vendor       || null,
+      receipt.date         || null,
+      parseFloat(receipt.total)  || 0,
+      parseFloat(receipt.tax)    || 0,
+      receipt.category     || 'Other',
+      receipt.status       || 'ready',
+      ser(receipt.notes),
+      receipt.photo_uri    || null,
+      receipt.created_at   || now,
+      receipt.updated_at   || now,
+      1,
+      receipt.version      || 1,
+      receipt.device_id    || null,
+      receipt.firestore_id || null,
+    ]
+  );
+  return result.lastInsertRowId;
+};
+
+/** Update a local receipt with cloud data; marks it as synced and sets the authoritative version. */
+export const updateReceiptFromCloud = async (id, fields, firestoreId, version) => {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.runAsync(
+    `UPDATE receipts
+     SET vendor=?, date=?, total=?, tax=?, category=?, status=?, notes=?,
+         updated_at=?, synced=1, version=?, firestore_id=COALESCE(?, firestore_id)
+     WHERE id=?`,
+    [
+      fields.vendor    || null,
+      fields.date      || null,
+      parseFloat(fields.total)  || 0,
+      parseFloat(fields.tax)    || 0,
+      fields.category  || 'Other',
+      fields.status    || 'ready',
+      ser(fields.notes),
+      now,
+      version          || 1,
+      firestoreId      || null,
+      id,
+    ]
+  );
+};
+
+// --- Queue aliases & additions ---
+
+/** Alias kept for callers that use the "Entry" naming convention. */
+export const insertQueueEntry = (receiptId, photoUri) => insertQueueItem(receiptId, photoUri);
+
+/** Alias kept for callers that use the "Entry" naming convention. */
+export const getQueueEntries = (status = 'pending') => getQueueItems(status);
+
+/** Generic update for a queue row — only touches columns that exist in the schema. */
+export const updateQueueEntry = async (id, updates) => {
+  const database = await getDb();
+  if (updates.status != null) {
+    await database.runAsync(
+      'UPDATE receipt_queue SET status=? WHERE id=?',
+      [updates.status, id]
+    );
+  }
+};
+
+/** Increment the retry counter (attempts column) for a queue entry. */
+export const incrementQueueRetryCount = async (id) => {
+  const database = await getDb();
+  await database.runAsync(
+    'UPDATE receipt_queue SET attempts = attempts + 1 WHERE id=?',
+    [id]
+  );
+};
+
+/** Fetch a single queue row by its id. */
+export const getQueueEntryById = async (id) => {
+  const database = await getDb();
+  return database.getFirstAsync('SELECT * FROM receipt_queue WHERE id=?', [id]);
+};
+
+/** Fetch all queue rows regardless of status. */
+export const getAllQueueEntries = async () => {
+  const database = await getDb();
+  return database.getAllAsync('SELECT * FROM receipt_queue ORDER BY created_at ASC');
 };
