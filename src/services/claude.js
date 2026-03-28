@@ -32,7 +32,7 @@ const callClaudeApi = async (base64) => {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-          { type: 'text', text: `This is a Canadian receipt. Extract the following fields and return ONLY raw JSON, no markdown, no backticks, no explanation.
+          { type: 'text', text: `This is a Canadian receipt. If the receipt is in another language, translate vendor name to English. Currency amounts should be extracted as-is (numbers only, no currency symbol). Extract the following fields and return ONLY raw JSON, no markdown, no backticks, no explanation.
 
 {
   "vendor": "store name or null if unreadable",
@@ -80,7 +80,7 @@ export const parseReceiptWithVision = async (imageUri) => {
   try {
     const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
 
-    const data = await retryWithBackoff(() => callClaudeApi(base64));
+    const data = await retryWithBackoff(() => callClaudeApi(base64), { maxAttempts: 4, initialDelayMs: 1000 });
 
     const text = data.content[0].text.trim();
     const cleaned = text.replace(/```json|```/g, '').trim();

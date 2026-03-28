@@ -19,6 +19,7 @@ import {
   getCloudReceipt,
 } from './firestore';
 import { normalizeNotes } from '../utils/receiptHelpers';
+import { uploadReceiptPhoto, downloadReceiptPhoto } from './photoStorage';
 
 const DEVICE_ID_KEY = '@zenvoy_device_id';
 
@@ -77,16 +78,25 @@ export async function syncLocalChangesToFirestore(user) {
         // Local wins: fall through to push with incremented version
       }
 
+      // Reuse the existing storage URL if already uploaded; otherwise upload now.
+      let photoStorageUrl = cloudReceipt?.photoStorageUrl || null;
+      if (!photoStorageUrl && receipt.photo_uri) {
+        try {
+          photoStorageUrl = await uploadReceiptPhoto(user.uid, firestoreId, receipt.photo_uri);
+        } catch (_) { /* non-fatal — receipt syncs without photo */ }
+      }
+
       const newVersion = (receipt.version || 1) + 1;
       await updateReceiptInFirestore(user.uid, {
         ...receipt,
-        firestore_id: firestoreId,
-        version:      newVersion,
-        device_id:    deviceId,
+        firestore_id:      firestoreId,
+        version:           newVersion,
+        device_id:         deviceId,
+        photo_storage_url: photoStorageUrl,
       });
       await markReceiptSynced(receipt.id, firestoreId, newVersion);
-    } catch (e) {
-      await insertFailedSync(receipt.id, 'push', e.message);
+    } catch {
+      await insertFailedSync(receipt.id, 'push', '[push sync error]');
     }
   }
 }
@@ -119,7 +129,10 @@ export async function syncCloudChangesToLocal(user) {
         }
 
         if (!existing) {
-          // Not in local DB: insert it
+          // Not in local DB: insert it (download photo if available in storage)
+          const photo_uri = cloud.photoStorageUrl
+            ? await downloadReceiptPhoto(cloud.photoStorageUrl, cloud.id).catch(() => null)
+            : null;
           await insertReceiptFromCloud({
             vendor:       cloud.vendor,
             date:         cloud.date,
@@ -128,7 +141,7 @@ export async function syncCloudChangesToLocal(user) {
             category:     cloud.category  || 'Other',
             status:       cloud.status    || 'ready',
             notes:        normalizeNotes(cloud.notes),
-            photo_uri:    null, // remote photo restore not supported
+            photo_uri,
             created_at:   cloud.createdAt || new Date().toISOString(),
             updated_at:   cloud.updatedAt || cloud.createdAt || new Date().toISOString(),
             version:      cloud.version   || 1,
@@ -148,17 +161,17 @@ export async function syncCloudChangesToLocal(user) {
           }, cloud.id, cloud.version || 1);
         }
         // local.version >= cloud.version → skip (local is same or newer)
-      } catch (e) { console.log('Pull sync receipt error:', e.message); }
+      } catch { console.log('[SyncService] pull sync receipt error occurred'); }
     }
-  } catch (e) {
-    console.log('Pull sync error:', e.message);
+  } catch {
+    console.log('[SyncService] pull sync error occurred');
   }
 }
 
 // --- Failed sync queue ---
 
 export async function queueFailedSync(receiptId, operation, error) {
-  await insertFailedSync(receiptId, operation, error?.message || String(error));
+  await insertFailedSync(receiptId, operation, '[sync error]');
 }
 
 export async function retryFailedSyncs(user) {
@@ -209,12 +222,12 @@ export function listenToCloudReceipts(user, onUpdate) {
     (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         const data = { id: change.doc.id, ...change.doc.data() };
-        onUpdate(change.type, data).catch((e) =>
-          console.log('listenToCloudReceipts onUpdate error:', e.message)
+        onUpdate(change.type, data).catch(() =>
+          console.log('[SyncService] listenToCloudReceipts onUpdate error occurred')
         );
       });
     },
-    (error) => console.log('Firestore listener error:', error.message)
+    () => console.log('[SyncService] Firestore listener error occurred')
   );
 
   return unsubscribe;

@@ -2,6 +2,15 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Load production keystore credentials from android/keystore.properties (gitignored).
+// If the file doesn't exist (e.g. dev machine or CI without production keys), the
+// release signingConfig falls back to the debug keystore automatically.
+def keystoreProps = new Properties()
+def keystorePropsFile = rootProject.file('app/keystore.properties')
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
 /**
@@ -105,17 +114,25 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // Reads from android/app/keystore.properties (gitignored).
+            // Falls back to debug keystore if the file is absent.
+            storeFile keystoreProps['STORE_FILE'] ? file(keystoreProps['STORE_FILE']) : file('debug.keystore')
+            storePassword keystoreProps['STORE_PASSWORD'] ?: 'android'
+            keyAlias keystoreProps['KEY_ALIAS'] ?: 'androiddebugkey'
+            keyPassword keystoreProps['KEY_PASSWORD'] ?: 'android'
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
+            // Set android.enableMinifyInReleaseBuilds=true in gradle.properties to enable R8 minification
+            // Currently disabled by default for Expo compatibility - enable before production release
             minifyEnabled enableMinifyInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'

@@ -384,5 +384,5 @@ const s = StyleSheet.create({
     justifyContent:  'center',
     alignItems:      'center',
   },
-  ctaText: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  ctaText: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
 });

@@ -57,7 +57,7 @@ function AnimatedNumber({ value, format }) {
       toValue:         value,
       duration:        600,
       easing:          Easing.out(Easing.cubic),
-      useNativeDriver: false,
+      useNativeDriver: false, // JS driver required — value display, not transform
     }).start();
     return () => animVal.removeListener(id);
   }, [value]);
@@ -581,7 +581,7 @@ const s = StyleSheet.create({
   statsDivider: { height: StyleSheet.hairlineWidth, backgroundColor: COLORS.border, marginVertical: SPACE.xs },
   statsRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   statsLabel:   { fontSize: 13, color: COLORS.textSecondary, fontWeight: '500' },
-  statsValue:   { fontSize: 14, color: COLORS.accent, fontWeight: '700' },
+  statsValue:   { fontSize: 14, color: COLORS.textPrimary, fontWeight: '700' },
 
   // ── Section header
   sectionHeader: {
@@ -647,7 +647,7 @@ const s = StyleSheet.create({
   cardDetails:{ fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
   cardRight:  { alignItems: 'flex-end', gap: 4 },
   syncIcon:   { fontSize: 11, fontWeight: '700' },
-  cardAmount: { fontSize: 15, fontWeight: '700', color: COLORS.accent },
+  cardAmount: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
   moreBtn:    { fontSize: 18, color: COLORS.textTertiary, letterSpacing: 1, lineHeight: 22 },
 
   // ── Skeleton
@@ -710,7 +710,7 @@ const s = StyleSheet.create({
     paddingHorizontal: SPACE.xxxl,
     ...ELEVATION.glow,
   },
-  emptyCtaText: { fontSize: 15, fontWeight: '700', color: COLORS.bg },
+  emptyCtaText: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
 
   // ── List
   listContent: { paddingBottom: SPACE.xxxl },

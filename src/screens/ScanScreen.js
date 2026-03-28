@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
-  Animated, ActivityIndicator, Easing, ScrollView, StyleSheet,
+  Alert, Animated, ActivityIndicator, Easing, ScrollView, StyleSheet,
   Text, TouchableOpacity, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -184,6 +184,9 @@ export default function ScanScreen({ navigation }) {
     setResult(null);
     try {
       const { uri, size } = await preprocessImage(rawUri);
+      if (size < 50000) {
+        showToast({ message: 'Image may be too small for accurate scanning. Try getting closer.', type: 'warning' });
+      }
       if (isTooLarge(size)) { setLoading(false); setTooLargeSheet(true); return; }
 
       const parsed = await parseReceiptWithVision(uri);
@@ -570,17 +573,32 @@ export default function ScanScreen({ navigation }) {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function ScreenHeader({ title, subtitle, avatarLetter }) {
+  function showHelp() {
+    Alert.alert(
+      'How to Scan',
+      '1. Tap the scan button and point your camera at a receipt.\n\n' +
+      '2. Make sure the receipt is flat, well-lit, and fully in frame.\n\n' +
+      '3. Zenvoy will automatically extract the vendor, date, total, and category.\n\n' +
+      '4. Review the result in your Inbox and tap "Mark Ready" when everything looks correct.',
+    );
+  }
+
   return (
     <View style={s.header}>
       <View>
         <Text style={s.headerTitle}>{title}</Text>
         <Text style={s.headerSubtitle}>{subtitle}</Text>
       </View>
-      {avatarLetter ? (
-        <View style={s.headerAvatar}>
-          <Text style={s.headerAvatarTxt}>{avatarLetter}</Text>
-        </View>
-      ) : null}
+      <View style={s.headerRight}>
+        {avatarLetter ? (
+          <View style={s.headerAvatar}>
+            <Text style={s.headerAvatarTxt}>{avatarLetter}</Text>
+          </View>
+        ) : null}
+        <TouchableOpacity style={s.helpBtn} onPress={showHelp} activeOpacity={0.7}>
+          <Text style={s.helpBtnTxt}>?</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -623,7 +641,7 @@ const s = StyleSheet.create({
   headerTitle: {
     fontSize:      22,
     fontWeight:    '800',
-    color:         COLORS.accent,
+    color:         COLORS.textPrimary,
     letterSpacing: -0.5,
   },
   headerSubtitle: {
@@ -646,6 +664,27 @@ const s = StyleSheet.create({
     fontSize:   14,
     fontWeight: '600',
     color:      COLORS.accent,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           8,
+  },
+  helpBtn: {
+    width:           28,
+    height:          28,
+    borderRadius:    14,
+    backgroundColor: COLORS.cardAlt,
+    borderWidth:     1,
+    borderColor:     COLORS.border,
+    justifyContent:  'center',
+    alignItems:      'center',
+  },
+  helpBtnTxt: {
+    fontSize:   14,
+    fontWeight: '700',
+    color:      COLORS.textSecondary,
+    lineHeight: 18,
   },
 
   // ── Idle background layers (absolute, behind everything)
@@ -710,7 +749,7 @@ const s = StyleSheet.create({
     left:            0,
     right:           0,
     height:          1,
-    backgroundColor: '#FFFFFF14',
+    backgroundColor: COLORS.textPrimary + '14',
   },
 
   heroIconWrap: {
@@ -826,7 +865,7 @@ const s = StyleSheet.create({
   primaryBtnTxt: {
     fontSize:      17,
     fontWeight:    '700',
-    color:         COLORS.bg,
+    color:         COLORS.textPrimary,
     letterSpacing: -0.2,
   },
 
@@ -902,7 +941,7 @@ const s = StyleSheet.create({
   lastScanTotal: {
     fontSize:   14,
     fontWeight: '700',
-    color:      COLORS.accent,
+    color:      COLORS.textPrimary,
   },
   lastScanChevron: {
     fontSize:   16,
@@ -1016,12 +1055,11 @@ const s = StyleSheet.create({
     paddingVertical:   7,
     borderRadius:      RADIUS.chip,
     borderWidth:       1,
-    backgroundColor:   'transparent',
     gap:               5,
   },
   chipEmoji:      { fontSize: 11 },
   chipText:       { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
-  chipTextActive: { color: '#fff' },
+  chipTextActive: { color: COLORS.textPrimary },
 
   notesCard: {
     backgroundColor: COLORS.cardAlt,
@@ -1048,7 +1086,7 @@ const s = StyleSheet.create({
     borderWidth:     1,
     borderColor:     COLORS.accent + '55',
   },
-  saveBtnTxt:  { fontSize: 17, fontWeight: '700', color: COLORS.bg, letterSpacing: -0.2 },
+  saveBtnTxt:  { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.2 },
   discardBtn: {
     height:         BTN_HEIGHT,
     justifyContent: 'center',
@@ -1078,7 +1116,7 @@ const s = StyleSheet.create({
     justifyContent:  'center',
     alignItems:      'center',
   },
-  sheetPrimaryTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  sheetPrimaryTxt: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
   sheetGhostBtn: {
     height:         BTN_HEIGHT,
     justifyContent: 'center',

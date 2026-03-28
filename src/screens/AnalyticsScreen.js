@@ -1,11 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import {
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  ActivityIndicator, Alert, Platform, TextInput, Modal,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   getExpenseSummary, getExpenseByCategory,
   getMonthlyTrend, getTaxDeductible, getTopVendors,
 } from '../services/analyticsService';
-import { COLORS, SPACE, RADIUS, H_PAD, CATEGORIES, getCategoryInfo } from '../constants/theme';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { useToast } from '../context/ToastContext';
+import { COLORS, ELEVATION, SPACE, RADIUS, H_PAD, BTN_HEIGHT, CATEGORIES, getCategoryInfo } from '../constants/theme';
+
+const BUDGET_KEY = '@zenvoy_budget_limit';
 
 // ─── Period helpers ─────────────────────────────────────────────────────────────
 
@@ -89,14 +98,53 @@ function MonthBar({ month, total, fraction }) {
 
 // ─── Screen ─────────────────────────────────────────────────────────────────────
 
-export default function AnalyticsScreen() {
-  const [period, setPeriod]         = useState('month');
-  const [loading, setLoading]       = useState(true);
-  const [summary, setSummary]       = useState(null);
-  const [byCategory, setByCategory] = useState({});
-  const [trend, setTrend]           = useState({});
-  const [deductible, setDeductible] = useState({});
-  const [topVendors, setTopVendors] = useState([]);
+export default function AnalyticsScreen({ navigation }) {
+  const { showToast } = useToast();
+
+  const [period, setPeriod]               = useState('month');
+  const [loading, setLoading]             = useState(true);
+  const [summary, setSummary]             = useState(null);
+  const [byCategory, setByCategory]       = useState({});
+  const [trend, setTrend]                 = useState({});
+  const [deductible, setDeductible]       = useState({});
+  const [topVendors, setTopVendors]       = useState([]);
+  const [budgetLimit, setBudgetLimit]     = useState(null);
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [budgetInput, setBudgetInput]     = useState('');
+
+  // Load saved budget limit on mount
+  useEffect(() => {
+    AsyncStorage.getItem(BUDGET_KEY).then(val => {
+      if (val) setBudgetLimit(parseFloat(val));
+    });
+  }, []);
+
+  const handleSetBudget = async (value) => {
+    const num = parseFloat(value);
+    if (!isNaN(num) && num > 0) {
+      await AsyncStorage.setItem(BUDGET_KEY, String(num));
+      setBudgetLimit(num);
+    }
+  };
+
+  const promptBudget = () => {
+    if (Platform.OS === 'ios') {
+      Alert.prompt(
+        'Set Budget',
+        'Enter your spending limit for this period:',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Set', onPress: (val) => handleSetBudget(val) },
+        ],
+        'plain-text',
+        budgetLimit ? String(budgetLimit) : '',
+        'decimal-pad'
+      );
+    } else {
+      setBudgetInput(budgetLimit ? String(budgetLimit) : '');
+      setShowBudgetModal(true);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,6 +166,33 @@ export default function AnalyticsScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  const [exportingAnalytics, setExportingAnalytics] = useState(false);
+
+  const handleExportAnalytics = async () => {
+    if (exportingAnalytics) return;
+    setExportingAnalytics(true);
+    try {
+      const header = 'Category,Total,Count\n';
+      const rows = Object.entries(byCategory).map(([key, val]) => {
+        const info = getCategoryInfo(key);
+        return `"${info.label}",${val.total.toFixed(2)},${val.count}`;
+      }).join('\n');
+      const csv = header + rows;
+      const path = FileSystem.documentDirectory + 'analytics_export.csv';
+      await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        showToast({ message: 'Sharing not available on this device.', type: 'warning' });
+        return;
+      }
+      await Sharing.shareAsync(path, { mimeType: 'text/csv', dialogTitle: 'Export Analytics' });
+    } catch (e) {
+      showToast({ message: 'Export failed. Please try again.', type: 'error' });
+    } finally {
+      setExportingAnalytics(false);
+    }
+  };
+
   // Category chart data
   const catEntries = Object.entries(byCategory);
   const maxCatTotal = catEntries.reduce((m, [, v]) => Math.max(m, v.total), 0.01);
@@ -130,58 +205,76 @@ export default function AnalyticsScreen() {
   const dedTotal = Object.values(deductible).reduce((s, v) => s + v.total, 0);
 
   return (
-    <ScrollView style={s.container} contentContainerStyle={s.content}>
+    <>
+      <ScrollView style={s.container} contentContainerStyle={s.content}>
 
-      {/* Period selector */}
-      <View style={s.periodRow}>
-        {PERIODS.map(p => (
-          <TouchableOpacity
-            key={p.key}
-            style={[s.periodChip, period === p.key && s.periodChipActive]}
-            onPress={() => setPeriod(p.key)}
-            activeOpacity={0.75}
-          >
-            <Text style={[s.periodText, period === p.key && s.periodTextActive]}>{p.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {loading ? (
-        <View style={s.loader}>
-          <ActivityIndicator color={COLORS.accent} size="large" />
+        {/* Period selector */}
+        <View style={s.periodRow}>
+          {PERIODS.map(p => (
+            <TouchableOpacity
+              key={p.key}
+              style={[s.periodChip, period === p.key && s.periodChipActive]}
+              onPress={() => setPeriod(p.key)}
+              activeOpacity={0.75}
+            >
+              <Text style={[s.periodText, period === p.key && s.periodTextActive]}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      ) : (
-        <>
-          {/* Summary cards */}
-          <View style={s.summaryGrid}>
-            <SummaryCard label="Total Expense"  value={`$${(summary?.totalExpense || 0).toFixed(2)}`} />
-            <SummaryCard label="Avg / Receipt"  value={`$${(summary?.avgPerReceipt || 0).toFixed(2)}`} />
-            <SummaryCard label="Total Tax"      value={`$${(summary?.totalTax || 0).toFixed(2)}`} />
-            <SummaryCard label="Receipts"       value={String(summary?.count || 0)} />
-          </View>
 
-          {/* Category breakdown */}
-          {catEntries.length > 0 && (
-            <>
-              <SectionHeader title="By Category" />
-              <View style={s.card}>
-                {catEntries.map(([key, val], i) => {
-                  const info = getCategoryInfo(key);
-                  return (
-                    <CategoryBar
-                      key={key}
-                      label={info.label}
-                      emoji={info.emoji}
-                      color={info.color}
-                      total={val.total}
-                      fraction={val.total / maxCatTotal}
-                      count={val.count}
-                    />
-                  );
-                })}
+        {loading ? (
+          <View style={s.loader}>
+            <ActivityIndicator color={COLORS.accent} size="large" />
+          </View>
+        ) : (
+          <>
+            {/* Summary cards */}
+            <View style={s.summaryGrid}>
+              <SummaryCard label="Total Expense"  value={`$${(summary?.totalExpense || 0).toFixed(2)}`} />
+              <SummaryCard label="Avg / Receipt"  value={`$${(summary?.avgPerReceipt || 0).toFixed(2)}`} />
+              <SummaryCard label="Total Tax"      value={`$${(summary?.totalTax || 0).toFixed(2)}`} />
+              <SummaryCard label="Receipts"       value={String(summary?.count || 0)} />
+            </View>
+
+            {/* Budget exceeded banner */}
+            {budgetLimit != null && summary && summary.totalExpense > budgetLimit && (
+              <View style={s.budgetBanner}>
+                <Text style={s.budgetBannerText}>
+                  ⚠ You've exceeded your ${budgetLimit.toFixed(2)} budget this period
+                </Text>
               </View>
-            </>
-          )}
+            )}
+
+            {/* Category breakdown */}
+            {catEntries.length > 0 && (
+              <>
+                <SectionHeader title="By Category" />
+                <View style={s.card}>
+                  {catEntries.map(([key, val]) => {
+                    const info = getCategoryInfo(key);
+                    return (
+                      <TouchableOpacity
+                        key={key}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          navigation.getParent()?.navigate('Receipts');
+                          showToast({ message: `Showing ${info.label} receipts`, type: 'info' });
+                        }}
+                      >
+                        <CategoryBar
+                          label={info.label}
+                          emoji={info.emoji}
+                          color={info.color}
+                          total={val.total}
+                          fraction={val.total / maxCatTotal}
+                          count={val.count}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
 
           {/* Monthly trend */}
           {trendEntries.length > 0 && (
@@ -239,17 +332,82 @@ export default function AnalyticsScreen() {
             </>
           )}
 
-          {/* Empty state */}
-          {catEntries.length === 0 && (
-            <View style={s.empty}>
-              <Text style={s.emptyIcon}>📊</Text>
-              <Text style={s.emptyText}>No data for this period</Text>
-              <Text style={s.emptySub}>Scan some receipts to see your analytics</Text>
+            {/* Empty state */}
+            {catEntries.length === 0 && (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>📊</Text>
+                <Text style={s.emptyText}>No data for this period</Text>
+                <Text style={s.emptySub}>Scan some receipts to see your analytics</Text>
+              </View>
+            )}
+
+            {/* Export Analytics button */}
+            {catEntries.length > 0 && (
+              <TouchableOpacity
+                style={[s.analyticsExportBtn, exportingAnalytics && { opacity: 0.5 }]}
+                onPress={handleExportAnalytics}
+                disabled={exportingAnalytics}
+                activeOpacity={0.85}
+              >
+                {exportingAnalytics
+                  ? <ActivityIndicator color={COLORS.textPrimary} size="small" />
+                  : <Text style={s.analyticsExportBtnText}>📊  Export Analytics CSV</Text>}
+              </TouchableOpacity>
+            )}
+
+            {/* Set Budget link */}
+            <TouchableOpacity style={s.setBudgetWrap} onPress={promptBudget} activeOpacity={0.7}>
+              <Text style={s.setBudgetText}>
+                {budgetLimit != null
+                  ? `Budget: $${budgetLimit.toFixed(2)} · Edit`
+                  : 'Set Budget'}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </ScrollView>
+
+      {/* Android budget modal */}
+      {showBudgetModal && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowBudgetModal(false)}>
+          <View style={s.modalOverlay}>
+            <View style={s.modalCard}>
+              <Text style={s.modalTitle}>Set Budget</Text>
+              <Text style={s.modalSub}>Enter your spending limit for this period</Text>
+              <TextInput
+                style={s.modalInput}
+                value={budgetInput}
+                onChangeText={setBudgetInput}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                placeholderTextColor={COLORS.textTertiary}
+                autoFocus
+                selectTextOnFocus
+              />
+              <View style={s.modalBtns}>
+                <TouchableOpacity
+                  style={s.modalBtnCancel}
+                  onPress={() => setShowBudgetModal(false)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={s.modalBtnCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.modalBtnSet}
+                  onPress={() => {
+                    handleSetBudget(budgetInput);
+                    setShowBudgetModal(false);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.modalBtnSetText}>Set</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          )}
-        </>
+          </View>
+        </Modal>
       )}
-    </ScrollView>
+    </>
   );
 }
 
@@ -273,7 +431,7 @@ const s = StyleSheet.create({
   },
   periodChipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
   periodText:       { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
-  periodTextActive: { color: COLORS.bg },
+  periodTextActive: { color: COLORS.textPrimary },
 
   loader: { paddingTop: 80, alignItems: 'center' },
 
@@ -292,7 +450,7 @@ const s = StyleSheet.create({
     borderWidth:     StyleSheet.hairlineWidth,
     borderColor:     COLORS.border,
   },
-  summaryValue: { fontSize: 22, fontWeight: '700', color: COLORS.accent, marginBottom: 2 },
+  summaryValue: { fontSize: 22, fontWeight: '700', color: COLORS.textPrimary, marginBottom: 2 },
   summaryLabel: { fontSize: 11, fontWeight: '600', color: COLORS.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
   summarySub:   { fontSize: 11, color: COLORS.textTertiary, marginTop: 2 },
 
@@ -354,7 +512,7 @@ const s = StyleSheet.create({
   dedEmoji: { fontSize: 16, width: 24, textAlign: 'center' },
   dedLabel: { flex: 1, fontSize: 14, color: COLORS.textPrimary, fontWeight: '500' },
   dedCount: { fontSize: 12, color: COLORS.textTertiary },
-  dedTotal: { fontSize: 14, fontWeight: '700', color: COLORS.accent },
+  dedTotal: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
 
   // Top vendors
   vendorRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
@@ -372,4 +530,101 @@ const s = StyleSheet.create({
   emptyIcon: { fontSize: 40, marginBottom: SPACE.sm },
   emptyText: { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary },
   emptySub:  { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center' },
+
+  // Budget exceeded banner
+  budgetBanner: {
+    backgroundColor: COLORS.warningMuted,
+    borderRadius:    RADIUS.md,
+    borderWidth:     1,
+    borderColor:     COLORS.warning + '55',
+    padding:         SPACE.md,
+    marginBottom:    SPACE.lg,
+  },
+  budgetBannerText: {
+    color:      COLORS.warning,
+    fontSize:   13,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+
+  // Export Analytics button
+  analyticsExportBtn: {
+    height:          BTN_HEIGHT,
+    borderRadius:    RADIUS.button,
+    backgroundColor: COLORS.cardAlt,
+    justifyContent:  'center',
+    alignItems:      'center',
+    borderWidth:     1,
+    borderColor:     COLORS.border,
+    marginTop:       SPACE.lg,
+  },
+  analyticsExportBtnText: { fontSize: 15, fontWeight: '600', color: COLORS.textPrimary },
+
+  // Set Budget link
+  setBudgetWrap: {
+    alignItems:   'center',
+    paddingTop:   SPACE.xl,
+    paddingBottom: SPACE.md,
+  },
+  setBudgetText: {
+    fontSize:   13,
+    color:      COLORS.accent,
+    fontWeight: '500',
+  },
+
+  // Android budget modal
+  modalOverlay: {
+    flex:            1,
+    backgroundColor: COLORS.overlay,
+    justifyContent:  'center',
+    alignItems:      'center',
+    paddingHorizontal: H_PAD,
+  },
+  modalCard: {
+    width:           '100%',
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.card,
+    borderWidth:     1,
+    borderColor:     COLORS.border,
+    padding:         SPACE.xl,
+    gap:             SPACE.md,
+    ...ELEVATION.modal,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary },
+  modalSub:   { fontSize: 13, color: COLORS.textSecondary },
+  modalInput: {
+    backgroundColor:   COLORS.cardAlt,
+    borderRadius:      RADIUS.input,
+    borderWidth:       1,
+    borderColor:       COLORS.border,
+    paddingHorizontal: SPACE.md,
+    height:            48,
+    fontSize:          16,
+    color:             COLORS.textPrimary,
+  },
+  modalBtns: {
+    flexDirection: 'row',
+    gap:           SPACE.sm,
+    marginTop:     SPACE.xs,
+  },
+  modalBtnCancel: {
+    flex:            1,
+    height:          44,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    borderWidth:     1,
+    borderColor:     COLORS.border,
+    backgroundColor: COLORS.cardAlt,
+  },
+  modalBtnCancelText: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '600' },
+  modalBtnSet: {
+    flex:            1,
+    height:          44,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    backgroundColor: COLORS.accent,
+  },
+  modalBtnSetText: { fontSize: 15, color: COLORS.textPrimary, fontWeight: '700' },
 });

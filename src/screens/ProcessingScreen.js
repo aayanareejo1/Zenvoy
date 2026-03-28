@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
     justifyContent:  'center',
     alignItems:      'center',
   },
-  doneBtnText: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  doneBtnText: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
 
   cancelBtn: {
     position:       'absolute',

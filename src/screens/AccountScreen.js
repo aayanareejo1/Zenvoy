@@ -8,6 +8,7 @@ import Dialog from '../components/Dialog';
 import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE } from '../constants/theme';
 import { trackEvent, Events } from '../services/eventTracker';
 import { FREE_MONTHLY_LIMIT } from '../constants/config';
+import RevenueCatUI from 'react-native-purchases-ui';
 
 export default function AccountScreen({ navigation }) {
   const { user, isPro, refreshInboxCount } = useApp();
@@ -152,6 +153,15 @@ export default function AccountScreen({ navigation }) {
         </TouchableOpacity>
       )}
 
+      {/* Manage Subscription (RevenueCat Customer Center) */}
+      <TouchableOpacity
+        style={styles.secondaryBtn}
+        onPress={() => RevenueCatUI.presentCustomerCenter()}
+        activeOpacity={0.75}
+      >
+        <Text style={styles.secondaryBtnTxt}>💳  Manage Subscription</Text>
+      </TouchableOpacity>
+
       {/* Sync Management */}
       <TouchableOpacity
         style={styles.secondaryBtn}
@@ -164,6 +174,15 @@ export default function AccountScreen({ navigation }) {
       {/* Sign out */}
       <TouchableOpacity style={styles.signOutBtn} onPress={() => setSignOutDialog(true)} activeOpacity={0.75}>
         <Text style={styles.signOutTxt}>Sign Out</Text>
+      </TouchableOpacity>
+
+      {/* Privacy Policy */}
+      <TouchableOpacity
+        style={styles.privacyBtn}
+        onPress={() => navigation.navigate('Privacy')}
+        activeOpacity={0.75}
+      >
+        <Text style={styles.privacyTxt}>Privacy Policy</Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -218,7 +237,7 @@ const styles = StyleSheet.create({
     justifyContent:  'center',
     alignItems:      'center',
   },
-  googleBtnTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  googleBtnTxt: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
 
   // ── Signed-in
   avatarSection: { alignItems: 'center', marginTop: SPACE.xxl, marginBottom: SPACE.xl, gap: SPACE.sm },
@@ -272,7 +291,7 @@ const styles = StyleSheet.create({
     justifyContent:  'center',
     alignItems:      'center',
   },
-  upgradeTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  upgradeTxt: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
 
   secondaryBtn: {
     alignSelf:       'stretch',
@@ -296,4 +315,12 @@ const styles = StyleSheet.create({
     marginTop:       SPACE.xs,
   },
   signOutTxt: { fontSize: 15, color: COLORS.danger, fontWeight: '500' },
+
+  privacyBtn: {
+    alignSelf:   'stretch',
+    height:      44,
+    justifyContent: 'center',
+    alignItems:  'center',
+  },
+  privacyTxt: { fontSize: 13, color: COLORS.textTertiary, fontWeight: '400' },
 });
