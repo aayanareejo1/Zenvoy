@@ -1,6 +1,7 @@
 import { getFirestore, collection, doc, setDoc, getDocs, getDoc } from '@react-native-firebase/firestore';
 import { insertReceipt, getAllReceipts } from './db';
 import { deriveStatus, normalizeNotes } from '../utils/receiptHelpers';
+import { downloadReceiptPhoto } from './photoStorage';
 
 const db = getFirestore();
 
@@ -9,19 +10,20 @@ export const syncReceiptToFirestore = async (uid, receipt) => {
   const firestoreId = receipt.firestore_id || String(receipt.id);
   const docRef = doc(db, 'users', uid, 'receipts', firestoreId);
   await setDoc(docRef, {
-    vendor:    receipt.vendor    || null,
-    date:      receipt.date      || null,
-    total:     receipt.total,
-    tax:       receipt.tax,
-    category:  receipt.category  || 'Other',
-    status:    receipt.status    || 'ready',
-    notes:     normalizeNotes(receipt.notes),
-    photoUri:  receipt.photo_uri || null,
-    createdAt: receipt.created_at || null,
-    updatedAt: receipt.updated_at || receipt.created_at || null,
-    version:   receipt.version   || 1,
-    deviceId:  receipt.device_id || null,
-    isDeleted: false,
+    vendor:           receipt.vendor           || null,
+    date:             receipt.date             || null,
+    total:            receipt.total,
+    tax:              receipt.tax,
+    category:         receipt.category         || 'Other',
+    status:           receipt.status           || 'ready',
+    notes:            normalizeNotes(receipt.notes),
+    photoUri:         receipt.photo_uri        || null,
+    photoStorageUrl:  receipt.photo_storage_url || null,
+    createdAt:        receipt.created_at        || null,
+    updatedAt:        receipt.updated_at        || receipt.created_at || null,
+    version:          receipt.version           || 1,
+    deviceId:         receipt.device_id         || null,
+    isDeleted:        false,
   });
 };
 
@@ -29,19 +31,20 @@ export const syncReceiptToFirestore = async (uid, receipt) => {
 export const updateReceiptInFirestore = async (uid, receipt) => {
   const firestoreId = receipt.firestore_id || String(receipt.id);
   await setDoc(doc(db, 'users', uid, 'receipts', firestoreId), {
-    vendor:    receipt.vendor    || null,
-    date:      receipt.date      || null,
-    total:     receipt.total,
-    tax:       receipt.tax,
-    category:  receipt.category  || 'Other',
-    status:    receipt.status    || 'ready',
-    notes:     normalizeNotes(receipt.notes),
-    photoUri:  receipt.photo_uri || null,
-    createdAt: receipt.created_at || null,
-    updatedAt: new Date().toISOString(),
-    version:   (receipt.version || 1) + 1,
-    deviceId:  receipt.device_id || null,
-    isDeleted: false,
+    vendor:           receipt.vendor           || null,
+    date:             receipt.date             || null,
+    total:            receipt.total,
+    tax:              receipt.tax,
+    category:         receipt.category         || 'Other',
+    status:           receipt.status           || 'ready',
+    notes:            normalizeNotes(receipt.notes),
+    photoUri:         receipt.photo_uri        || null,
+    photoStorageUrl:  receipt.photo_storage_url || null,
+    createdAt:        receipt.created_at        || null,
+    updatedAt:        new Date().toISOString(),
+    version:          (receipt.version || 1) + 1,
+    deviceId:         receipt.device_id         || null,
+    isDeleted:        false,
   });
 };
 
@@ -101,6 +104,9 @@ export const restoreFromFirestore = async (uid) => {
         const fp = `${(r.vendor || '').toLowerCase()}|${r.date || ''}|${parseFloat(r.total || 0).toFixed(2)}`;
         if (localFingerprints.has(fp)) { skipped++; continue; }
 
+        const photoUri = r.photoStorageUrl
+          ? await downloadReceiptPhoto(r.photoStorageUrl, r.firestoreId || String(r.id)).catch(() => null)
+          : null;
         const receipt = {
           vendor:     r.vendor    || null,
           date:       r.date      || null,
@@ -109,7 +115,7 @@ export const restoreFromFirestore = async (uid) => {
           category:   r.category   || 'Other',
           status:     r.status     || deriveStatus(r),
           notes:      normalizeNotes(r.notes),
-          photo_uri:  null,
+          photo_uri:  photoUri,
           created_at: r.createdAt  || new Date().toISOString(),
           updated_at: r.updatedAt  || r.createdAt || new Date().toISOString(),
         };

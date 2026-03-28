@@ -1,29 +1,62 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { getInboxReceipts } from '../services/db';
-import { COLORS, ELEVATION, RADIUS, H_PAD, SPACE, getCategoryInfo } from '../constants/theme';
+import { getInboxReceipts, updateReceipt, softDeleteReceipt } from '../services/db';
+import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE, getCategoryInfo } from '../constants/theme';
 
 export default function InboxScreen({ navigation }) {
-  const [receipts, setReceipts] = useState([]);
+  const [receipts,    setReceipts]    = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const load = useCallback(async () => {
     const data = await getInboxReceipts();
     setReceipts(data);
   }, []);
 
+  const toggleSelect = useCallback((id) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  }, []);
+
+  const handleBatchMarkReady = useCallback(async () => {
+    const ids = selectedIds;
+    for (const id of ids) {
+      const item = receipts.find(r => r.id === id);
+      if (item) await updateReceipt(id, { ...item, status: 'ready' });
+    }
+    setSelectedIds([]);
+    await load();
+  }, [selectedIds, receipts, load]);
+
+  const handleBatchDelete = useCallback(async () => {
+    for (const id of selectedIds) {
+      await softDeleteReceipt(id);
+    }
+    setSelectedIds([]);
+    await load();
+  }, [selectedIds, load]);
+
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const renderItem = useCallback(({ item }) => {
-    const cat    = getCategoryInfo(item.category);
-    const vendor = item.vendor || 'Unknown vendor';
-    const date   = item.date   || 'No date';
-    const total  = parseFloat(item.total) > 0 ? `$${parseFloat(item.total).toFixed(2)}` : '—';
+    const cat        = getCategoryInfo(item.category);
+    const vendor     = item.vendor || 'Unknown vendor';
+    const date       = item.date   || 'No date';
+    const total      = parseFloat(item.total) > 0 ? `$${parseFloat(item.total).toFixed(2)}` : '—';
+    const isSelected = selectedIds.includes(item.id);
 
     return (
       <TouchableOpacity
-        style={styles.row}
-        onPress={() => navigation.navigate('InboxDetail', { receipt: item, onSave: load })}
+        style={[styles.row, isSelected && styles.rowSelected]}
+        onPress={() => {
+          if (selectedIds.length > 0) {
+            toggleSelect(item.id);
+          } else {
+            navigation.navigate('InboxDetail', { receipt: item, onSave: load });
+          }
+        }}
+        onLongPress={() => toggleSelect(item.id)}
         activeOpacity={0.75}
       >
         <View style={[styles.catIcon, { backgroundColor: cat.color + '18', borderWidth: 1, borderColor: cat.color + '50' }]}>
@@ -44,13 +77,19 @@ export default function InboxScreen({ navigation }) {
         </View>
       </TouchableOpacity>
     );
-  }, [navigation, load]);
+  }, [navigation, load, selectedIds, toggleSelect]);
+
+  const n = selectedIds.length;
 
   return (
     <View style={styles.container}>
       {receipts.length > 0 && (
         <View style={styles.hintRow}>
-          <Text style={styles.hint}>{receipts.length} receipt{receipts.length !== 1 ? 's' : ''} need attention</Text>
+          <Text style={styles.hint}>
+            {n > 0
+              ? `${n} selected`
+              : `${receipts.length} receipt${receipts.length !== 1 ? 's' : ''} need attention`}
+          </Text>
         </View>
       )}
       <FlatList
@@ -66,8 +105,20 @@ export default function InboxScreen({ navigation }) {
             <Text style={styles.emptySubtext}>All receipts have been reviewed</Text>
           </View>
         }
-        contentContainerStyle={{ paddingBottom: 28 }}
+        contentContainerStyle={{ paddingBottom: n > 0 ? 100 : 28 }}
       />
+
+      {/* Batch action bar */}
+      {n > 0 && (
+        <View style={styles.actionBar}>
+          <TouchableOpacity style={styles.actionBtnReady} onPress={handleBatchMarkReady} activeOpacity={0.85}>
+            <Text style={styles.actionBtnText}>Mark Ready ({n})</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionBtnDelete} onPress={handleBatchDelete} activeOpacity={0.85}>
+            <Text style={styles.actionBtnDeleteText}>Delete ({n})</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -106,7 +157,7 @@ const styles = StyleSheet.create({
   note:      { fontSize: 12, color: COLORS.warning, marginTop: 3, fontWeight: '500' },
 
   rowRight: { alignItems: 'flex-end', gap: SPACE.sm },
-  total:    { fontSize: 15, fontWeight: '700', color: COLORS.accent },
+  total:    { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
 
   badge: {
     backgroundColor: COLORS.warningMuted,
@@ -117,6 +168,47 @@ const styles = StyleSheet.create({
     borderColor:     COLORS.warning + '50',
   },
   badgeText: { fontSize: 10, fontWeight: '700', color: COLORS.warning, letterSpacing: 0.4 },
+
+  rowSelected: {
+    borderColor:     COLORS.accent + '80',
+    backgroundColor: COLORS.accentMuted,
+  },
+
+  // Batch action bar
+  actionBar: {
+    position:        'absolute',
+    bottom:          20,
+    left:            H_PAD,
+    right:           H_PAD,
+    flexDirection:   'row',
+    backgroundColor: COLORS.card,
+    borderRadius:    RADIUS.lg,
+    borderWidth:     1,
+    borderColor:     COLORS.border,
+    padding:         SPACE.sm,
+    gap:             SPACE.sm,
+    ...ELEVATION.sheet,
+  },
+  actionBtnReady: {
+    flex:            1,
+    height:          BTN_HEIGHT,
+    backgroundColor: COLORS.accent,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+  },
+  actionBtnDelete: {
+    flex:            1,
+    height:          BTN_HEIGHT,
+    backgroundColor: COLORS.dangerMuted,
+    borderRadius:    RADIUS.button,
+    justifyContent:  'center',
+    alignItems:      'center',
+    borderWidth:     1,
+    borderColor:     COLORS.danger + '40',
+  },
+  actionBtnText:       { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
+  actionBtnDeleteText: { fontSize: 14, fontWeight: '700', color: COLORS.danger },
 
   // Empty state
   empty: { alignItems: 'center', marginTop: 100, gap: SPACE.sm },

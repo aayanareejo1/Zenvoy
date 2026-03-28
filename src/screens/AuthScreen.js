@@ -11,6 +11,7 @@ import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Animated, Easing, ActivityIndicator, SafeAreaView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { signInWithEmail, signUpWithEmail, sendPhoneOtp } from '../services/auth';
 import {
@@ -197,6 +198,22 @@ export const AuthModeToggle = ({ activeMode, onModeChange }) => {
   );
 };
 
+/** Password strength: returns 'weak' | 'medium' | 'strong' */
+function getPasswordStrength(pw) {
+  if (!pw) return null;
+  if (pw.length < 6)  return 'weak';
+  if (pw.length <= 10) return 'medium';
+  return 'strong';
+}
+
+const STRENGTH_COLOR = {
+  weak:   COLORS.danger,
+  medium: COLORS.warning,
+  strong: COLORS.success,
+};
+
+const STRENGTH_WIDTH = { weak: '33%', medium: '66%', strong: '100%' };
+
 /**
  * Email + password form with animated error fade-in.
  * Supports both sign-in and sign-up (isSignUp adds confirm password field).
@@ -204,10 +221,12 @@ export const AuthModeToggle = ({ activeMode, onModeChange }) => {
 export const EmailForm = ({
   email, password, confirmPassword,
   onEmailChange, onPasswordChange, onConfirmPasswordChange,
-  onSubmit, loading, error, isSignUp,
+  onSubmit, loading, error, isSignUp, navigation,
 }) => {
   const btnScale     = useRef(new Animated.Value(1)).current;
   const errorOpacity = useRef(new Animated.Value(0)).current;
+  const [showPassword,        setShowPassword]        = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     if (error) {
@@ -224,6 +243,7 @@ export const EmailForm = ({
   const pressOut = () => Animated.spring(btnScale, { toValue: 1,    ...SPRING_CONFIGS.pressOut }).start();
 
   const disabled = !email || !password || (isSignUp && !confirmPassword) || loading;
+  const strength = isSignUp ? getPasswordStrength(password) : null;
 
   return (
     <View style={s.formWrap}>
@@ -239,31 +259,68 @@ export const EmailForm = ({
         testID={TEST_IDS.emailInput}
         accessibilityLabel={A11Y_LABELS.emailInput}
       />
-      <TextInput
-        style={s.input}
-        placeholder="Enter password"
-        placeholderTextColor={COLORS.textTertiary}
-        value={password}
-        onChangeText={onPasswordChange}
-        secureTextEntry
-        autoCapitalize="none"
-        autoCorrect={false}
-        testID={TEST_IDS.passwordInput}
-        accessibilityLabel={A11Y_LABELS.passwordInput}
-      />
-      {isSignUp && (
+
+      {/* Password input with eye toggle */}
+      <View style={s.inputWrap}>
         <TextInput
-          style={s.input}
-          placeholder="Confirm password"
+          style={[s.input, s.inputWithIcon]}
+          placeholder="Enter password"
           placeholderTextColor={COLORS.textTertiary}
-          value={confirmPassword}
-          onChangeText={onConfirmPasswordChange}
-          secureTextEntry
+          value={password}
+          onChangeText={onPasswordChange}
+          secureTextEntry={!showPassword}
           autoCapitalize="none"
           autoCorrect={false}
-          testID={TEST_IDS.confirmPwdInput}
-          accessibilityLabel={A11Y_LABELS.confirmPwdInput}
+          testID={TEST_IDS.passwordInput}
+          accessibilityLabel={A11Y_LABELS.passwordInput}
         />
+        <TouchableOpacity
+          style={s.eyeBtn}
+          onPress={() => setShowPassword(v => !v)}
+          accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+        >
+          <Ionicons
+            name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+            size={20}
+            color={COLORS.textTertiary}
+          />
+        </TouchableOpacity>
+      </View>
+
+      {/* Password strength meter — sign up only */}
+      {isSignUp && strength && (
+        <View style={s.strengthTrack}>
+          <View style={[s.strengthBar, { width: STRENGTH_WIDTH[strength], backgroundColor: STRENGTH_COLOR[strength] }]} />
+        </View>
+      )}
+
+      {/* Confirm password with eye toggle — sign up only */}
+      {isSignUp && (
+        <View style={s.inputWrap}>
+          <TextInput
+            style={[s.input, s.inputWithIcon]}
+            placeholder="Confirm password"
+            placeholderTextColor={COLORS.textTertiary}
+            value={confirmPassword}
+            onChangeText={onConfirmPasswordChange}
+            secureTextEntry={!showConfirmPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+            testID={TEST_IDS.confirmPwdInput}
+            accessibilityLabel={A11Y_LABELS.confirmPwdInput}
+          />
+          <TouchableOpacity
+            style={s.eyeBtn}
+            onPress={() => setShowConfirmPassword(v => !v)}
+            accessibilityLabel={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+          >
+            <Ionicons
+              name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
+              size={20}
+              color={COLORS.textTertiary}
+            />
+          </TouchableOpacity>
+        </View>
       )}
 
       {error ? (
@@ -291,6 +348,16 @@ export const EmailForm = ({
             : <Text style={s.primaryBtnTxt}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>}
         </TouchableOpacity>
       </Animated.View>
+
+      {/* Forgot Password link — sign in only */}
+      {!isSignUp && navigation && (
+        <TouchableOpacity
+          style={s.forgotLink}
+          onPress={() => navigation.navigate('ForgotPassword')}
+        >
+          <Text style={s.forgotLinkTxt}>Forgot Password?</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -364,7 +431,7 @@ export const PhoneForm = ({ phone, onPhoneChange, onSubmit, loading, error }) =>
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function AuthScreen() {
+export default function AuthScreen({ navigation }) {
   const [email,           setEmail]           = useState('');
   const [password,        setPassword]        = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -467,6 +534,7 @@ export default function AuthScreen() {
             loading={loading}
             error={error}
             isSignUp={isSignUp}
+            navigation={navigation}
           />
         ) : (
           <PhoneForm
@@ -556,7 +624,7 @@ const s = StyleSheet.create({
     ...ELEVATION.card,
   },
   toggleTxt:       { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary },
-  toggleTxtActive: { color: COLORS.bg, fontWeight: '700' },
+  toggleTxtActive: { color: COLORS.textPrimary, fontWeight: '700' },
 
   // ── Shared form layout
   formWrap: { alignSelf: 'stretch', gap: SPACE.md },
@@ -571,6 +639,45 @@ const s = StyleSheet.create({
     paddingHorizontal: SPACE.lg,
     fontSize:          15,
     color:             COLORS.textPrimary,
+  },
+  inputWrap: {
+    position: 'relative',
+  },
+  inputWithIcon: {
+    paddingRight: BTN_HEIGHT, // leave room for eye button
+  },
+  eyeBtn: {
+    position:       'absolute',
+    right:          0,
+    top:            0,
+    bottom:         0,
+    width:          BTN_HEIGHT,
+    justifyContent: 'center',
+    alignItems:     'center',
+  },
+
+  // ── Password strength meter
+  strengthTrack: {
+    height:          4,
+    backgroundColor: COLORS.border,
+    borderRadius:    RADIUS.pill,
+    overflow:        'hidden',
+    marginTop:       -SPACE.sm,
+  },
+  strengthBar: {
+    height:       4,
+    borderRadius: RADIUS.pill,
+  },
+
+  // ── Forgot password
+  forgotLink: {
+    alignItems:     'center',
+    paddingVertical: SPACE.xs,
+  },
+  forgotLinkTxt: {
+    fontSize:   14,
+    color:      COLORS.accent,
+    fontWeight: '500',
   },
 
   // ── Error message
@@ -595,5 +702,5 @@ const s = StyleSheet.create({
     borderWidth:     1,
     borderColor:     COLORS.accent + '55',
   },
-  primaryBtnTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg, letterSpacing: -0.2 },
+  primaryBtnTxt: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.2 },
 });

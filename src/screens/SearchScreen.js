@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, ScrollView, Animated,
+  StyleSheet, ScrollView, Animated, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -39,8 +39,11 @@ export default function SearchScreen({ navigation }) {
   const [savedFilters, setSaved]        = useState({});
   const [showFilters, setShowFilters]   = useState(false);
   const [activeCategories, setActiveCat] = useState([]);
+  const [minAmount, setMinAmount]       = useState('');
+  const [maxAmount, setMaxAmount]       = useState('');
 
   const debounceTimer = useRef(null);
+  const amountTimer   = useRef(null);
   const filtersHeight = useRef(new Animated.Value(0)).current;
 
   const loadMeta = useCallback(async () => {
@@ -59,13 +62,19 @@ export default function SearchScreen({ navigation }) {
     }).start();
   }, [showFilters]);
 
-  const runSearch = useCallback(async (q, cats) => {
-    if (!q.trim() && !cats.length) { setResults([]); return; }
+  const runSearch = useCallback(async (q, cats, minAmt, maxAmt) => {
+    const hasAmounts = (minAmt && minAmt.trim()) || (maxAmt && maxAmt.trim());
+    if (!q.trim() && !cats.length && !hasAmounts) { setResults([]); return; }
     setSearching(true);
     try {
       let res;
-      if (cats.length) {
-        res = await filterReceipts({ categories: cats });
+      if (cats.length || hasAmounts) {
+        const opts = { categories: cats };
+        const min = parseFloat(minAmt);
+        const max = parseFloat(maxAmt);
+        if (!isNaN(min) && minAmt.trim()) opts.minAmount = min;
+        if (!isNaN(max) && maxAmt.trim()) opts.maxAmount = max;
+        res = await filterReceipts(opts);
         if (q.trim()) {
           const lq = q.trim().toLowerCase();
           res = res.filter(r => (r.vendor || '').toLowerCase().includes(lq));
@@ -83,28 +92,44 @@ export default function SearchScreen({ navigation }) {
     setQuery(text);
     clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      runSearch(text, activeCategories);
+      runSearch(text, activeCategories, minAmount, maxAmount);
       if (text.trim()) addRecentSearch(text.trim());
     }, DEBOUNCE_MS);
-  }, [activeCategories, runSearch]);
+  }, [activeCategories, minAmount, maxAmount, runSearch]);
 
   const toggleCategory = useCallback((key) => {
     const next = activeCategories.includes(key)
       ? activeCategories.filter(k => k !== key)
       : [...activeCategories, key];
     setActiveCat(next);
-    runSearch(query, next);
-  }, [activeCategories, query, runSearch]);
+    runSearch(query, next, minAmount, maxAmount);
+  }, [activeCategories, query, minAmount, maxAmount, runSearch]);
+
+  const handleMinAmountChange = useCallback((text) => {
+    setMinAmount(text);
+    clearTimeout(amountTimer.current);
+    amountTimer.current = setTimeout(() => {
+      runSearch(query, activeCategories, text, maxAmount);
+    }, DEBOUNCE_MS);
+  }, [query, activeCategories, maxAmount, runSearch]);
+
+  const handleMaxAmountChange = useCallback((text) => {
+    setMaxAmount(text);
+    clearTimeout(amountTimer.current);
+    amountTimer.current = setTimeout(() => {
+      runSearch(query, activeCategories, minAmount, text);
+    }, DEBOUNCE_MS);
+  }, [query, activeCategories, minAmount, runSearch]);
 
   const applyRecent = (q) => {
     setQuery(q);
-    runSearch(q, activeCategories);
+    runSearch(q, activeCategories, minAmount, maxAmount);
   };
 
   const applyFilter = (filter) => {
     const cats = filter.categories || [];
     setActiveCat(cats);
-    runSearch(query, cats);
+    runSearch(query, cats, minAmount, maxAmount);
   };
 
   const handleDeleteFilter = async (name) => {
@@ -139,9 +164,9 @@ export default function SearchScreen({ navigation }) {
     );
   };
 
-  const showEmpty = !searching && query.trim() && results.length === 0;
+  const showEmpty = !searching && (query.trim() || activeCategories.length || minAmount.trim() || maxAmount.trim()) && results.length === 0;
   const showResults = results.length > 0;
-  const showSuggestions = !query.trim() && !activeCategories.length;
+  const showSuggestions = !query.trim() && !activeCategories.length && !minAmount.trim() && !maxAmount.trim();
 
   return (
     <View style={s.container}>
@@ -173,7 +198,7 @@ export default function SearchScreen({ navigation }) {
       </View>
 
       {/* Filter panel */}
-      <Animated.View style={[s.filterPanel, { opacity: filtersHeight, maxHeight: filtersHeight.interpolate({ inputRange: [0, 1], outputRange: [0, 200] }) }]}>
+      <Animated.View style={[s.filterPanel, { opacity: filtersHeight, maxHeight: filtersHeight.interpolate({ inputRange: [0, 1], outputRange: [0, 320] }) }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.catChips}>
           {CATEGORIES.map(cat => (
             <TouchableOpacity
@@ -187,6 +212,34 @@ export default function SearchScreen({ navigation }) {
             </TouchableOpacity>
           ))}
         </ScrollView>
+
+        {/* Amount range inputs */}
+        <View style={s.amountRow}>
+          <View style={s.amountField}>
+            <Text style={s.amountLabel}>Min $</Text>
+            <TextInput
+              style={s.amountInput}
+              placeholder="0.00"
+              placeholderTextColor={COLORS.textTertiary}
+              value={minAmount}
+              onChangeText={handleMinAmountChange}
+              keyboardType="decimal-pad"
+            />
+          </View>
+          <View style={s.amountSep} />
+          <View style={s.amountField}>
+            <Text style={s.amountLabel}>Max $</Text>
+            <TextInput
+              style={s.amountInput}
+              placeholder="Any"
+              placeholderTextColor={COLORS.textTertiary}
+              value={maxAmount}
+              onChangeText={handleMaxAmountChange}
+              keyboardType="decimal-pad"
+            />
+          </View>
+        </View>
+
         {activeCategories.length > 0 && (
           <TouchableOpacity style={s.saveFilterBtn} onPress={handleSaveFilter}>
             <Text style={s.saveFilterText}>Save filter</Text>
@@ -247,6 +300,20 @@ export default function SearchScreen({ navigation }) {
               ))}
             </View>
           )}
+
+          {/* Saved Searches chips */}
+          {showSuggestions && recentSearches.length > 0 && (
+            <View style={s.section}>
+              <Text style={s.sectionTitle}>Saved Searches</Text>
+              <View style={s.chipRow}>
+                {recentSearches.map((r, i) => (
+                  <TouchableOpacity key={i} style={s.savedChip} onPress={() => applyRecent(r)}>
+                    <Text style={s.savedChipText}>{r}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
         </ScrollView>
       )}
     </View>
@@ -295,6 +362,38 @@ const s = StyleSheet.create({
   saveFilterBtn: { alignSelf: 'flex-start', marginTop: SPACE.xs, marginBottom: SPACE.sm },
   saveFilterText: { fontSize: 12, color: COLORS.accent, fontWeight: '600' },
 
+  amountRow: {
+    flexDirection:  'row',
+    alignItems:     'flex-end',
+    marginTop:      SPACE.sm,
+    marginBottom:   SPACE.xs,
+    gap:            SPACE.sm,
+  },
+  amountField: { flex: 1 },
+  amountLabel: {
+    fontSize:     11,
+    fontWeight:   '600',
+    color:        COLORS.textSecondary,
+    textTransform:'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: SPACE.xs,
+  },
+  amountInput: {
+    backgroundColor:   COLORS.card,
+    borderRadius:      RADIUS.input,
+    borderWidth:       1,
+    borderColor:       COLORS.border,
+    paddingHorizontal: SPACE.md,
+    height:            40,
+    color:             COLORS.textPrimary,
+    fontSize:          14,
+  },
+  amountSep: {
+    width:           1,
+    height:          40,
+    backgroundColor: COLORS.border,
+  },
+
   hint: { fontSize: 13, color: COLORS.textTertiary, paddingVertical: SPACE.sm },
 
   resultRow: {
@@ -309,7 +408,7 @@ const s = StyleSheet.create({
   catDot: { width: 38, height: 38, borderRadius: RADIUS.md, justifyContent: 'center', alignItems: 'center', marginRight: SPACE.md },
   vendor: { fontSize: 15, fontWeight: '600', color: COLORS.textPrimary },
   date:   { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  total:  { fontSize: 15, fontWeight: '700', color: COLORS.accent },
+  total:  { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
 
   emptyWrap: { alignItems: 'center', marginTop: 60, gap: SPACE.sm },
   emptyIcon: { fontSize: 36 },

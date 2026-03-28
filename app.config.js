@@ -12,6 +12,7 @@ module.exports = {
     platforms: ['android', 'ios'],
     ios: {
       bundleIdentifier: 'com.aareejo.zenvoy',
+      buildNumber: '1',
       supportsTablet: false,
       googleServicesFile:
         process.env.GOOGLE_SERVICES_INFO_PLIST ?? './GoogleService-Info.plist',

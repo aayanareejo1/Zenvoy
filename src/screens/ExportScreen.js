@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
   vendor:    { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
   date:      { fontSize: 12, color: COLORS.textSecondary, marginTop: 3 },
   rowRight:  { alignItems: 'center', gap: SPACE.xs, flexDirection: 'row' },
-  amount:    { fontSize: 14, fontWeight: '700', color: COLORS.accent, marginRight: SPACE.sm },
+  amount:    { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary, marginRight: SPACE.sm },
   checkbox: {
     width:          22,
     height:         22,
@@ -442,7 +442,7 @@ const styles = StyleSheet.create({
     alignItems:      'center',
     ...ELEVATION.glow,
   },
-  exportBtnText: { fontSize: 15, fontWeight: '700', color: COLORS.bg },
+  exportBtnText: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
   exportBtnAlt: {
     flex:            1,
     height:          BTN_HEIGHT,

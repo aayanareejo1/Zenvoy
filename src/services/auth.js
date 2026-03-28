@@ -6,6 +6,7 @@ import {
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
+  sendPasswordResetEmail as firebaseSendPasswordResetEmail,
 } from '@react-native-firebase/auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { GOOGLE_WEB_CLIENT_ID } from '../constants/config';
@@ -45,3 +46,21 @@ export const sendPhoneOtp = async (_phone) => {
 export const getCurrentUser = () => auth.currentUser;
 
 export const onAuthStateChanged = (callback) => firebaseOnAuthStateChanged(auth, callback);
+
+export const sendPasswordResetEmail = async (email) => {
+  await firebaseSendPasswordResetEmail(auth, email);
+};
+
+export const verifyPasswordResetCode = async (code) => {
+  return auth.verifyPasswordResetCode(code);
+};
+
+export const confirmPasswordReset = async (code, newPassword) => {
+  return auth.confirmPasswordReset(code, newPassword);
+};
+
+export const signInAsGuest = async () => {
+  return getAuth().signInAnonymously();
+};
+
+export const isGuestUser = () => !!(getAuth().currentUser?.isAnonymous);

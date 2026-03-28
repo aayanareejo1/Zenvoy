@@ -60,12 +60,12 @@ export async function exportToPDF(receipts) {
       <head>
         <style>
           body { font-family: Arial; margin: 20px; }
-          h1 { text-align: center; color: #333; }
-          p { color: #666; text-align: center; }
+          h1 { text-align: center; color: #111827; }
+          p { color: #6B7280; text-align: center; }
           table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-          th { background-color: #f2f2f2; font-weight: bold; }
-          .total-row { font-weight: bold; background-color: #f9f9f9; }
+          th, td { border: 1px solid #E5E7EB; padding: 12px; text-align: left; }
+          th { background-color: #F3F4F6; font-weight: bold; color: #111827; }
+          .total-row { font-weight: bold; background-color: #F9FAFB; }
         </style>
       </head>
       <body>

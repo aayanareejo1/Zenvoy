@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
   },
   periodActive:    { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
   periodTxt:       { color: COLORS.textSecondary, fontSize: 13, fontWeight: '600' },
-  periodActiveTxt: { color: COLORS.bg, fontWeight: '700' },
+  periodActiveTxt: { color: COLORS.textPrimary, fontWeight: '700' },
 
   summaryRow: { flexDirection: 'row', gap: SPACE.sm, marginBottom: SPACE.xl },
   summaryCard: {
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     borderColor:     COLORS.accent + '40',
   },
   summaryValue:       { fontSize: 17, fontWeight: '700', color: COLORS.textSecondary, marginBottom: 4 },
-  summaryValueAccent: { color: COLORS.accent },
+  summaryValueAccent: { color: COLORS.textPrimary },
   summaryLabel:       { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4 },
 
   sectionTitle: {
@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
   catInfo:   { flex: 1 },
   catTopRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SPACE.sm },
   catLabel:  { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
-  catAmount: { fontSize: 15, fontWeight: '700', color: COLORS.accent },
+  catAmount: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
   barBg: {
     height:          5,
     backgroundColor: COLORS.cardAlt,
@@ -264,5 +264,5 @@ const styles = StyleSheet.create({
     justifyContent:  'center',
     alignItems:      'center',
   },
-  exportTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  exportTxt: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
 });

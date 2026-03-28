@@ -11,4 +11,11 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
+# Firebase (react-native-firebase)
+-keep class io.invertase.firebase.** { *; }
+-keep class com.google.firebase.** { *; }
+
+# RevenueCat
+-keep class com.revenuecat.purchases.** { *; }
+
 # Add any project specific keep options here:

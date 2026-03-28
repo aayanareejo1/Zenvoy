@@ -6,13 +6,22 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useApp }   from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
+import { useSync }  from '../context/SyncContext';
 import { getFailedSyncs } from '../services/db';
 import { retryFailedSyncs, retryOne, MAX_ATTEMPTS } from '../services/syncManager';
 import { COLORS, ELEVATION, RADIUS, BTN_HEIGHT, H_PAD, SPACE } from '../constants/theme';
 
+const STATUS_DOT_COLOR = {
+  synced:  COLORS.accent,
+  error:   COLORS.danger,
+  syncing: COLORS.warning,
+  idle:    COLORS.textTertiary,
+};
+
 export default function SyncManagementScreen() {
-  const { user }      = useApp();
-  const { showToast } = useToast();
+  const { user }                      = useApp();
+  const { showToast }                 = useToast();
+  const { lastSyncTime, syncStatus }  = useSync();
 
   const [items,    setItems]    = useState([]);
   const [loading,  setLoading]  = useState(false);
@@ -119,6 +128,17 @@ export default function SyncManagementScreen() {
         )}
       </View>
 
+      {/* Last sync status row */}
+      <View style={s.syncStatusRow}>
+        <View style={[s.syncDot, { backgroundColor: STATUS_DOT_COLOR[syncStatus] ?? COLORS.textTertiary }]} />
+        <Text style={s.syncStatusText}>
+          Last sync:{' '}
+          {lastSyncTime
+            ? new Date(lastSyncTime).toLocaleTimeString()
+            : 'Never'}
+        </Text>
+      </View>
+
       {loading ? (
         <ActivityIndicator color={COLORS.accent} style={{ marginTop: 48 }} />
       ) : items.length === 0 ? (
@@ -152,6 +172,23 @@ const s = StyleSheet.create({
   },
   title: { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary },
 
+  syncStatusRow: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    gap:            SPACE.sm,
+    paddingBottom:  SPACE.md,
+  },
+  syncDot: {
+    width:        8,
+    height:       8,
+    borderRadius: 4,
+  },
+  syncStatusText: {
+    fontSize:  12,
+    color:     COLORS.textSecondary,
+    fontWeight:'500',
+  },
+
   retryAllBtn: {
     backgroundColor: COLORS.accent,
     height:          36,
@@ -162,7 +199,7 @@ const s = StyleSheet.create({
     ...ELEVATION.glow,
   },
   retryAllBtnDisabled: { opacity: 0.5 },
-  retryAllTxt: { fontSize: 14, fontWeight: '700', color: COLORS.bg },
+  retryAllTxt: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
 
   card: {
     backgroundColor: COLORS.card,
@@ -180,7 +217,7 @@ const s = StyleSheet.create({
     marginBottom:   SPACE.xs,
   },
   vendor:  { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, flex: 1, marginRight: SPACE.sm },
-  total:   { fontSize: 15, fontWeight: '700', color: COLORS.accent },
+  total:   { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
   date:    { fontSize: 12, color: COLORS.textSecondary, marginBottom: SPACE.xs },
   error:   { fontSize: 12, color: COLORS.danger,        marginBottom: SPACE.sm },
 

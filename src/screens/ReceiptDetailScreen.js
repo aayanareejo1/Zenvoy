@@ -1,7 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, Image } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { updateReceipt, deleteReceipt, getReceiptById } from '../services/db';
+import { updateReceipt, deleteReceipt, softDeleteReceipt, getReceiptById } from '../services/db';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { useToast } from '../context/ToastContext';
 import Dialog from '../components/Dialog';
@@ -80,9 +82,31 @@ export default function ReceiptDetailScreen({ route, navigation }) {
   const confirmDelete = async () => {
     setDeleteDialog(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    await deleteReceipt(receipt.id);
+    await softDeleteReceipt(receipt.id);
     onSave?.();
     navigation.goBack();
+  };
+
+  const handleShare = async () => {
+    try {
+      const lines = [
+        `Vendor: ${receipt.vendor || 'Not set'}`,
+        `Date: ${receipt.date || 'Not set'}`,
+        `Total: ${parseFloat(receipt.total) > 0 ? `$${parseFloat(receipt.total).toFixed(2)}` : 'Not set'}`,
+        `Category: ${getCategoryInfo(receipt.category).label}`,
+      ];
+      const text = lines.join('\n');
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        showToast({ message: 'Sharing is not available on this device.', type: 'warning' });
+        return;
+      }
+      const tmpPath = `${FileSystem.cacheDirectory}receipt_${receipt.id}.txt`;
+      await FileSystem.writeAsStringAsync(tmpPath, text, { encoding: FileSystem.EncodingType.UTF8 });
+      await Sharing.shareAsync(tmpPath, { mimeType: 'text/plain', dialogTitle: 'Share Receipt' });
+    } catch (e) {
+      showToast({ message: 'Could not share receipt.', type: 'error' });
+    }
   };
 
   return (
@@ -155,6 +179,11 @@ export default function ReceiptDetailScreen({ route, navigation }) {
           <Text style={styles.photoBtnText}>🖼  View Photo</Text>
         </TouchableOpacity>
       )}
+
+      {/* Share */}
+      <TouchableOpacity style={styles.shareBtn} onPress={handleShare} activeOpacity={0.75}>
+        <Text style={styles.editTxt}>Share Receipt</Text>
+      </TouchableOpacity>
 
       {/* Actions */}
       {receipt.status === 'needs_review' && (
@@ -264,8 +293,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: SPACE.sm,
   },
-  markReadyTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  markReadyTxt: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
 
+  shareBtn: {
+    backgroundColor: COLORS.card,
+    height: BTN_HEIGHT,
+    borderRadius: RADIUS.button,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: SPACE.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
   editBtn: {
     backgroundColor: COLORS.card,
     height: BTN_HEIGHT,

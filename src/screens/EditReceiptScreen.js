@@ -353,7 +353,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  saveTxt: { fontSize: 16, fontWeight: '700', color: COLORS.bg },
+  saveTxt: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
 
   deleteBtn: {
     height: BTN_HEIGHT,

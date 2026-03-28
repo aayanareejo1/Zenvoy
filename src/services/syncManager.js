@@ -50,7 +50,7 @@ export const retryFailedSyncs = async (uid) => {
       await deleteFailedSync(item.id);
       succeeded++;
     } catch (e) {
-      console.error('Sync retry failed for item', item.id, ':', e.message);
+      console.error('[SyncManager] retry failed for item:', item.id);
       await incrementFailedSyncAttempt(item.id);
       failed++;
     }
@@ -80,7 +80,7 @@ export const retryOne = async (failedSyncId, uid) => {
     await database.runAsync('UPDATE receipts SET synced = 1 WHERE id = ?', [receipt.id]);
     await deleteFailedSync(item.id);
   } catch (e) {
-    console.error('Single sync retry failed for failedSyncId', failedSyncId, ':', e.message);
+    console.error('[SyncManager] single retry failed for id:', failedSyncId);
     await incrementFailedSyncAttempt(item.id);
     throw e;
   }
@@ -120,7 +120,7 @@ export class SyncManager {
       this.lastSyncTime = new Date();
       this.onStatusChange('synced');
     } catch (e) {
-      console.log('SyncManager error:', e.message);
+      console.log('[SyncManager] sync error occurred');
       this.onStatusChange('error');
     } finally {
       this.isSyncing = false;

@@ -11,6 +11,7 @@ import { ToastProvider }             from './src/context/ToastContext';
 import { SyncProvider }              from './src/context/SyncContext';
 import { ThemeProvider }             from './src/context/ThemeContext';
 import { ErrorProvider }             from './src/context/ErrorContext';
+import { SessionProvider }           from './src/context/SessionContext';
 import SyncStatusBadge               from './src/components/SyncStatusBadge';
 import OfflineBanner                 from './src/components/OfflineBanner';
 import ScanScreen             from './src/screens/ScanScreen';
@@ -28,7 +29,10 @@ import AnalyticsScreen        from './src/screens/AnalyticsScreen';
 import SearchScreen           from './src/screens/SearchScreen';
 import OnboardingScreen, { ONBOARDING_KEY } from './src/screens/OnboardingScreen';
 import PaywallScreen from './src/screens/PaywallScreen';
+import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
+import PrivacyScreen        from './src/screens/PrivacyScreen';
 import { COLORS }          from './src/constants/theme';
+import { configureRevenueCat } from './src/services/revenueCat';
 
 const Tab           = createBottomTabNavigator();
 const RootStack     = createNativeStackNavigator();
@@ -83,7 +87,9 @@ function AccountStackNav() {
         options={{ title: 'Account', headerRight: () => <SyncStatusBadge /> }}
       />
       <AccountStack.Screen name="Auth"           component={AuthScreen}           options={{ title: 'Sign In' }} />
+      <AccountStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Reset Password' }} />
       <AccountStack.Screen name="SyncManagement" component={SyncManagementScreen} options={{ title: 'Sync Issues' }} />
+      <AccountStack.Screen name="Privacy"        component={PrivacyScreen}        options={{ headerShown: false }} />
     </AccountStack.Navigator>
   );
 }
@@ -157,19 +163,25 @@ function MainNav() {
 }
 
 export default function App() {
+  // Configure RevenueCat once before any component mounts.
+  // Identity is handled inside AppContext after Firebase auth resolves.
+  React.useEffect(() => { configureRevenueCat(); }, []);
+
   return (
     <ThemeProvider>
       <AppProvider>
         <ToastProvider>
           <ErrorProvider>
             <SyncProvider>
-              <NavigationContainer>
-                <StatusBar style="light" />
-                <View style={{ flex: 1 }}>
-                  <MainNav />
-                  <OfflineBanner />
-                </View>
-              </NavigationContainer>
+              <SessionProvider>
+                <NavigationContainer>
+                  <StatusBar style="light" />
+                  <View style={{ flex: 1 }}>
+                    <MainNav />
+                    <OfflineBanner />
+                  </View>
+                </NavigationContainer>
+              </SessionProvider>
             </SyncProvider>
           </ErrorProvider>
         </ToastProvider>
