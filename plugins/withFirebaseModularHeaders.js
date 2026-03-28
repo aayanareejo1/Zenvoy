@@ -1,69 +1,60 @@
 /**
- * Two-layer Podfile patch for react-native-firebase v21 + Expo SDK 55 + Xcode 16.
+ * Podfile patches for react-native-firebase v21 + Expo SDK 55 + Xcode 16.
  *
- * Layer 1 — inhibit_all_warnings! (Podfile DSL, xcconfig level)
- *   Appended right after `platform :ios` so it applies at CocoaPods resolve
- *   time, writing GCC_WARN_INHIBIT_ALL_WARNINGS = YES into every pod's xcconfig.
- *   This is independent of post_install hooks and is the most reliable suppression.
+ * Patch A — inhibit_all_warnings! (xcconfig level, no post_install needed)
+ *   Inserted after the `platform :ios` line. CocoaPods writes
+ *   GCC_WARN_INHIBIT_ALL_WARNINGS = YES into every pod's xcconfig during
+ *   `pod install`. This suppresses the [-Wimplicit-int] errors from BoringSSL-GRPC
+ *   and nanopb that Xcode 16 promotes to fatal errors.
  *
- * Layer 2 — Appended post_install block (xcodeproj level)
- *   CocoaPods accumulates ALL post_install callbacks from the Podfile and runs
- *   them all (they are stored as a list, not overwritten). Appending a new block
- *   is therefore safe and avoids fragile injection into the existing block.
- *   This applies:
- *     a) CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES = YES
- *        (required for RNFBApp Obj-C headers under use_frameworks! :linkage => :static)
- *     b) Removal of -GCC_WARN_INHIBIT_ALL_WARNINGS per-file flag from BoringSSL-GRPC
- *        (Xcode 16 Clang misparses -G prefix, breaking warning suppression in BoringSSL)
- *     c) GCC_WARN_INHIBIT_ALL_WARNINGS = YES at target-build-configuration level
- *        (belt-and-suspenders for nanopb / gRPC-Core residual warnings)
+ * Patch B — CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES (post_install)
+ *   Injected into the EXISTING post_install block (CocoaPods only runs the last
+ *   post_install block — appending a new one would replace react_native_post_install).
+ *   Allows RNFBApp to include React-Core Obj-C headers inside a framework module
+ *   when use_frameworks! :linkage => :static is active.
+ *   The CLANG_ prefix is mandatory — the bare key ALLOW_NON_MODULAR_INCLUDES
+ *   without it is silently ignored by Xcode.
+ *
+ * Patch C — BoringSSL-GRPC per-file flag fix (post_install)
+ *   Strips -GCC_WARN_INHIBIT_ALL_WARNINGS from BoringSSL-GRPC source file
+ *   COMPILER_FLAGS and replaces it with -w. Xcode 16 Clang misparses the -G
+ *   prefix as a MIPS/AArch64 GP linker flag, discards the whole entry, and
+ *   exposes all of BoringSSL's legacy C implicit-int patterns as fatal errors.
+ *   (Fixed upstream in gRPC ≥ 1.65.2; belt-and-suspenders for older lock files.)
  *
  * References: grpc/grpc#36888, firebase/firebase-ios-sdk#13115,
- *             invertase/react-native-firebase#8020, mikehardy/rnfbdemo
+ *             invertase/react-native-firebase#8020
  */
 const { withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
-const LAYER1_MARKER = '# zenvoy:inhibit_all_warnings';
-const LAYER2_MARKER = '# zenvoy:firebase_post_install';
+const PATCH_A_MARKER = '# zenvoy:inhibit_all_warnings';
+const PATCH_B_MARKER = '# zenvoy:firebase_post_install_patches';
+const POST_INSTALL_HOOK = 'post_install do |installer|';
 
-// Injected immediately after 'platform :ios, ...' line
-const LAYER1 = `${LAYER1_MARKER}
-inhibit_all_warnings!
-`;
+const PATCH_B_C = `  ${PATCH_B_MARKER}
 
-// Appended to end of Podfile — CocoaPods runs ALL post_install blocks
-const LAYER2 = `
-${LAYER2_MARKER}
-post_install do |installer|
+  # Patch B: Allow non-modular React-Core headers in all framework pod targets.
   installer.pods_project.targets.each do |target|
-    # (a) Allow non-modular React-Core headers in all framework targets.
-    # CLANG_ prefix is required — ALLOW_NON_MODULAR_INCLUDES without it is a no-op.
     target.build_configurations.each do |bc|
       bc.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
     end
+  end
 
-    # (b) Strip the broken -GCC_WARN_INHIBIT_ALL_WARNINGS per-file flag from BoringSSL-GRPC.
-    # Xcode 16 Clang interprets -G as a MIPS/AArch64 GP linker flag, discards the entry,
-    # and exposes all BoringSSL implicit-int warnings as errors.
-    if target.name == 'BoringSSL-GRPC'
-      target.source_build_phase.files.each do |file|
-        if file.settings && file.settings['COMPILER_FLAGS']
-          flags = file.settings['COMPILER_FLAGS'].split
-          flags.reject! { |f| f == '-GCC_WARN_INHIBIT_ALL_WARNINGS' }
-          flags << '-w'
-          file.settings['COMPILER_FLAGS'] = flags.join(' ')
-        end
-      end
-    end
-
-    # (c) Belt-and-suspenders: set warning inhibit at target-config level.
-    target.build_configurations.each do |bc|
-      bc.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'
+  # Patch C: Replace broken -GCC_WARN_INHIBIT_ALL_WARNINGS per-file flag in
+  # BoringSSL-GRPC with plain -w. Xcode 16 misparses -G prefix as a linker flag.
+  installer.pods_project.targets.each do |target|
+    next unless target.name == 'BoringSSL-GRPC'
+    target.source_build_phase.files.each do |file|
+      next unless file.settings && file.settings['COMPILER_FLAGS']
+      flags = file.settings['COMPILER_FLAGS'].split
+      flags.reject! { |f| f == '-GCC_WARN_INHIBIT_ALL_WARNINGS' }
+      flags << '-w'
+      file.settings['COMPILER_FLAGS'] = flags.join(' ')
     end
   end
-end
+
 `;
 
 const withFirebaseModularHeaders = (config) =>
@@ -76,20 +67,33 @@ const withFirebaseModularHeaders = (config) =>
       );
       let contents = fs.readFileSync(podfilePath, 'utf-8');
 
-      // --- Layer 1: inhibit_all_warnings! after platform declaration ---
-      if (!contents.includes(LAYER1_MARKER)) {
-        // Match 'platform :ios, ...' line and insert after it
+      // Patch A: inhibit_all_warnings! after platform :ios declaration
+      if (!contents.includes(PATCH_A_MARKER)) {
         const platformMatch = contents.match(/platform\s+:ios[^\n]*\n/);
         if (platformMatch) {
-          const insertAt = contents.indexOf(platformMatch[0]) + platformMatch[0].length;
-          contents = contents.slice(0, insertAt) + LAYER1 + contents.slice(insertAt);
+          const insertAt =
+            contents.indexOf(platformMatch[0]) + platformMatch[0].length;
+          contents =
+            contents.slice(0, insertAt) +
+            PATCH_A_MARKER + '\ninhibit_all_warnings!\n\n' +
+            contents.slice(insertAt);
         }
-        // If platform line not found, fall through — Layer 2 will still apply
       }
 
-      // --- Layer 2: appended post_install block ---
-      if (!contents.includes(LAYER2_MARKER)) {
-        contents = contents + LAYER2;
+      // Patches B+C: inject into EXISTING post_install block
+      // (do NOT append a new block — CocoaPods only runs the last one)
+      if (!contents.includes(PATCH_B_MARKER)) {
+        if (!contents.includes(POST_INSTALL_HOOK)) {
+          throw new Error(
+            '[withFirebaseModularHeaders] Could not find "' +
+              POST_INSTALL_HOOK +
+              '" in Podfile. Expo-generated Podfile structure may have changed.',
+          );
+        }
+        contents = contents.replace(
+          POST_INSTALL_HOOK,
+          POST_INSTALL_HOOK + '\n' + PATCH_B_C,
+        );
       }
 
       fs.writeFileSync(podfilePath, contents);
