@@ -1,6 +1,6 @@
 name: Validate iOS Podfile
 
-# Cheap CI gate: expo prebuild + pod install only (~5 min).
+# Cheap CI gate: expo prebuild + pod install only (~5 min). First run.
 # Catches config-plugin patch failures before a full Xcode/EAS build (30+ min).
 
 on:
