@@ -29,6 +29,7 @@ module.exports = {
       '@react-native-firebase/app',
       '@react-native-google-signin/google-signin',
       './plugins/withIAPFlavor',
+      './plugins/withFirebaseModularHeaders',
       [
         'expo-image-picker',
         {
