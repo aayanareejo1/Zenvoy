@@ -1,0 +1,34 @@
+{
+  "cli": {
+    "version": ">= 12.0.0"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "buildConfiguration": "Release",
+        "simulator": false
+      },
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      }
+    },
+    "production": {
+      "ios": {
+        "buildConfiguration": "Release"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "aayanareejo@hotmail.com",
+        "appleTeamId": "95NFN8934W"
+      }
+    }
+  }
+}
