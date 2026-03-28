@@ -18,8 +18,9 @@ ios/build/
 ios/Pods/
 ios/DerivedData/
 
-# Secrets — never commit these
-src/constants/config.js
+# Local env overrides — never commit these
+.env.local
+.env*.local
 google-services.json
 android/app/google-services.json
 GoogleService-Info.plist
