@@ -1,0 +1,104 @@
+name: Validate iOS Podfile
+
+# Cheap CI gate: expo prebuild + pod install only (~5 min).
+# Catches config-plugin patch failures before a full Xcode/EAS build (30+ min).
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  pod-validate:
+    runs-on: macos-14
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Create placeholder GoogleService-Info.plist
+        run: |
+          cat > GoogleService-Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CLIENT_ID</key>
+            <string>000000000000-placeholder.apps.googleusercontent.com</string>
+            <key>REVERSED_CLIENT_ID</key>
+            <string>com.googleusercontent.apps.000000000000-placeholder</string>
+            <key>API_KEY</key>
+            <string>placeholder-api-key</string>
+            <key>GCM_SENDER_ID</key>
+            <string>000000000000</string>
+            <key>BUNDLE_ID</key>
+            <string>com.aareejo.zenvoy</string>
+            <key>PROJECT_ID</key>
+            <string>placeholder-project</string>
+            <key>STORAGE_BUCKET</key>
+            <string>placeholder-project.appspot.com</string>
+            <key>IS_ADS_ENABLED</key>
+            <false/>
+            <key>IS_ANALYTICS_ENABLED</key>
+            <false/>
+            <key>IS_APPINVITE_ENABLED</key>
+            <true/>
+            <key>IS_GCM_ENABLED</key>
+            <true/>
+            <key>IS_SIGNIN_ENABLED</key>
+            <true/>
+            <key>GOOGLE_APP_ID</key>
+            <string>1:000000000000:ios:placeholder</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: expo prebuild (iOS only)
+        env:
+          EXPO_PUBLIC_CLAUDE_API_KEY: placeholder
+          EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: placeholder
+          EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY: placeholder
+          EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: placeholder
+        run: npx expo prebuild --platform ios --clean --no-install
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: cocoapods-${{ hashFiles('ios/Podfile') }}
+          restore-keys: cocoapods-
+
+      - name: pod install
+        id: pod_install
+        run: |
+          cd ios
+          if pod install --repo-update 2>&1 | tee /tmp/pod_install.log; then
+            echo "✅ Podfile valid — pod install succeeded"
+            exit 0
+          else
+            echo "❌ FAILED — pod install output:"
+            cat /tmp/pod_install.log
+            exit 1
+          fi
+
+      - name: Print Podfile on failure
+        if: failure() && steps.pod_install.outcome == 'failure'
+        run: |
+          echo "=== ios/Podfile ==="
+          cat ios/Podfile
