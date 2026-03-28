@@ -28,7 +28,8 @@
     "production": {
       "ios": {
         "appleId": "aayanareejo@hotmail.com",
-        "appleTeamId": "95NFN8934W"
+        "appleTeamId": "95NFN8934W",
+        "ascAppId": "6761286142"
       }
     }
   }
