@@ -13,6 +13,8 @@
 
 Zenvoy turns a photo of any receipt into a structured expense record in seconds. No manual entry. Just point, shoot, and your spending is tracked automatically.
 
+Built out of frustration: I was manually copying hundreds of receipts into a spreadsheet every tax season. It took hours, it was error-prone, and I kept losing paper receipts. Zenvoy is what I wished existed.
+
 ## Features
 
 - **Instant scanning** — Capture with your camera or pick from your photo library. Claude AI extracts the merchant, date, total, line items, and spending category automatically.
