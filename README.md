@@ -11,19 +11,17 @@
   <img src="https://img.shields.io/badge/Firebase-Firestore-FFCA28?style=flat-square&logo=firebase&logoColor=black" />
 </p>
 
----
-
-Zenvoy turns a photo of any receipt into a structured expense record in seconds. No manual entry — just point, shoot, and your spending is tracked automatically.
+Zenvoy turns a photo of any receipt into a structured expense record in seconds. No manual entry. Just point, shoot, and your spending is tracked automatically.
 
 ## Features
 
 - **Instant scanning** — Capture with your camera or pick from your photo library. Claude AI extracts the merchant, date, total, line items, and spending category automatically.
 - **Smart inbox** — Every scan lands in a review queue. Confirm, edit, or discard before receipts are filed.
 - **Spending analytics** — Charts for category breakdown, monthly trends, top vendors, and tax-deductible totals. Set a monthly budget and track against it.
-- **PDF & CSV export** — Share reports directly with an accountant or import into a spreadsheet.
+- **PDF and CSV export** — Share reports directly with an accountant or import into a spreadsheet.
 - **Cloud sync** — Sign in with email or Google to back up and sync receipts across devices via Firebase/Firestore. Offline-first with automatic conflict resolution.
 - **Works offline** — All data lives in a local SQLite database. The app is fully functional without a connection.
-- **Free & Pro tiers** — 5 free scans per month. Zenvoy Pro removes the limit via in-app purchase.
+- **Free and Pro tiers** — 5 free scans per month. Zenvoy Pro removes the limit via in-app purchase.
 
 ## Tech stack
 
@@ -64,14 +62,14 @@ Open `src/constants/config.js` and fill in:
 | Key | Where to get it |
 |---|---|
 | `CLAUDE_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
-| `GOOGLE_WEB_CLIENT_ID` | Firebase console → Authentication → Sign-in providers → Google |
+| `GOOGLE_WEB_CLIENT_ID` | Firebase console > Authentication > Sign-in providers > Google |
 
 ### 3. Add Firebase config files
 
 Create a Firebase project with **Authentication** and **Firestore** enabled, then download:
 
-- `google-services.json` → place in `android/app/`
-- `GoogleService-Info.plist` → place in the project root
+- `google-services.json` into `android/app/`
+- `GoogleService-Info.plist` into the project root
 
 ### 4. Run
 
@@ -84,24 +82,24 @@ npm run ios        # Build and run on iOS
 ## Project structure
 
 ```
-App.js                    # Entry point — providers and navigation
+App.js                    # Entry point, providers and navigation
 src/
   screens/                # One file per screen
   components/             # Shared UI components
   context/                # React contexts (App, Toast, Sync, Theme, Error)
-  services/               # Business logic (AI, database, sync, export…)
+  services/               # Business logic (AI, database, sync, export)
   constants/              # Theme, colors, config template
   utils/                  # Utility helpers
 android/                  # Android native project
 plugins/                  # Expo config plugins (Firebase, in-app purchases)
-.github/workflows/        # CI — iOS Podfile validation
+.github/workflows/        # CI (iOS Podfile validation)
 ```
 
 ## Security
 
-- `src/constants/config.js` is gitignored — never commit API keys
-- `google-services.json` and `GoogleService-Info.plist` are gitignored — add your own
-- Firebase Security Rules should restrict all reads and writes to the authenticated user
+- `src/constants/config.js` is gitignored. Never commit API keys.
+- `google-services.json` and `GoogleService-Info.plist` are gitignored. Add your own from the Firebase console.
+- Firebase Security Rules should restrict all reads and writes to the authenticated user.
 
 ## License
 
