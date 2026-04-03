@@ -32,6 +32,9 @@ GoogleService-Info.plist
 # Production signing credentials — never commit
 android/app/keystore.properties
 
+# Claude Code local settings (may contain session keys)
+.claude/settings.local.json
+
 # Misc
 *.log
 .DS_Store
